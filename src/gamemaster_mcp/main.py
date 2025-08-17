@@ -37,7 +37,7 @@ storage = DnDStorage(data_dir=data_path)
 logger.debug("✅ Storage layer initialized")
 
 mcp = FastMCP(
-    name="gamemaster-mcp"
+    name="D&D Campaign Manager"
 )
 logger.debug("✅ Server initialized, registering tools")
 
