@@ -207,7 +207,7 @@ class DnDStorage:
     def _find_character(self, name_or_id: str) -> Character | None:
         """Find a character by name or ID."""
         if not self._current_campaign:
-            e = ValueError("❌ No active campaign! Wtf???")
+            e = ValueError("No current campaign")
             logger.error(e)
             raise e
 
@@ -236,6 +236,9 @@ class DnDStorage:
 
     def get_character(self, name_or_id: str) -> Character | None:
         """Get a character by name or ID."""
+        if not name_or_id:
+            raise ValueError("Empty character name or id")
+
         char = self._find_character(name_or_id)
         if not char:
             logger.error(f"❌ Character '{name_or_id}' not found!")
@@ -295,7 +298,7 @@ class DnDStorage:
     def list_characters(self) -> list[str]:
         """List all character names in the current campaign."""
         if not self._current_campaign:
-            return []
+            raise ValueError("No current campaign")
         return list(self._current_campaign.characters.keys())
 
     # NPC Management
@@ -311,13 +314,15 @@ class DnDStorage:
     def get_npc(self, name: str) -> NPC | None:
         """Get an NPC by name."""
         if not self._current_campaign:
-            return None
+            raise ValueError("No current campaign")
+        if not name:
+            raise ValueError("Empty npc name")
         return self._current_campaign.npcs.get(name)
 
     def list_npcs(self) -> list[str]:
         """List all NPC names."""
         if not self._current_campaign:
-            return []
+            raise ValueError("No current campaign")
         return list(self._current_campaign.npcs.keys())
 
     # Location Management
@@ -333,13 +338,15 @@ class DnDStorage:
     def get_location(self, name: str) -> Location | None:
         """Get a location by name."""
         if not self._current_campaign:
-            return None
+            raise ValueError("No current campaign")
+        if not name:
+            raise ValueError("Empty location name")
         return self._current_campaign.locations.get(name)
 
     def list_locations(self) -> list[str]:
         """List all location names."""
         if not self._current_campaign:
-            return []
+            raise ValueError("No current campaign")
         return list(self._current_campaign.locations.keys())
 
     # Quest Management
@@ -355,7 +362,9 @@ class DnDStorage:
     def get_quest(self, title: str) -> Quest | None:
         """Get a quest by title."""
         if not self._current_campaign:
-            return None
+            raise ValueError("No current campaign")
+        if not title:
+            raise ValueError("Empty quest title")
         return self._current_campaign.quests.get(title)
 
     def update_quest_status(self, title: str, status: str) -> None:
@@ -365,11 +374,13 @@ class DnDStorage:
             quest.status = status
             self._current_campaign.updated_at = datetime.now()  # type: ignore
             self._save_campaign()
+        else:
+            raise ValueError(f"No such quest {title}")
 
     def list_quests(self, status: str | None = None) -> list[str]:
         """List quest titles, optionally filtered by status."""
         if not self._current_campaign:
-            return []
+            raise ValueError("No current campaign")
 
         quests = self._current_campaign.quests
         if status:
@@ -410,7 +421,7 @@ class DnDStorage:
     def get_sessions(self) -> list[SessionNote]:
         """Get all session notes."""
         if not self._current_campaign:
-            return []
+            raise ValueError("No current campaign")
         return self._current_campaign.sessions
 
     # Adventure Log / Events
