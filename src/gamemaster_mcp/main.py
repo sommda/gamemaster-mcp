@@ -7,6 +7,7 @@ import logging
 import random
 import re
 import os
+import argparse
 from pathlib import Path
 from typing import Annotated, Literal
 from dotenv import load_dotenv
@@ -847,7 +848,27 @@ logger.debug("✅ All tools successfully registered. Gamemaster-MCP server runni
 
 def main() -> None:
     """Main entry point for the D&D MCP Server."""
-    mcp.run()
+    parser = argparse.ArgumentParser(description="Server configuration")
+
+    parser.add_argument(
+        "--transport",
+        type=str,
+        help="Transport type to use with the server (optional)"
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port number to run the server on (default: 8000)"
+    )
+
+    args = parser.parse_args()
+
+    if args.transport is not None:
+        mcp.run(transport=args.transport, port=args.port)
+    else:
+        mcp.run()
 
 if __name__ == "__main__":
     main()
