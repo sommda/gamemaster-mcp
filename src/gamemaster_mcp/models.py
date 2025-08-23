@@ -128,10 +128,10 @@ class GameStats(BaseModel):
 
 class GameStatHandler(Handler):
     """Connects the logging module to the GameStats object."""
-    def __init__(self, gamestats: GameStats, func) -> None:
+    def __init__(self, gamestats: GameStats, func=None) -> None:
         super().__init__()
         self.gamestats = gamestats
-        self.func = func  # Store the user-specified function
+        self.func = func or self.inc_stat
 
     def emit(self, record):
         try:
@@ -139,17 +139,15 @@ class GameStatHandler(Handler):
         except Exception as e:
             self.handleError(record)  # Handle errors gracefully
 
-    def inc_stat(self, stat_tracker: GameStats, record: LogRecord):
+    def inc_stat(self, record: LogRecord):
 
         if "ERROR" in record.levelname:
             # Increment error count stat
-            stat_tracker.inc("errors")
+            self.stat_tracker.inc("errors")
 
 # Load GameStats object and attach logging handler
 gamestats = GameStats()
-
-func = GameStatHandler.inc_stat
-logger.addHandler(GameStatHandler(gamestats, func))
+logger.addHandler(GameStatHandler(gamestats))
 
 
 class AbilityScore(BaseModel):
