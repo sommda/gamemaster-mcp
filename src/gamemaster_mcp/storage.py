@@ -435,12 +435,15 @@ class DnDStorage:
         self._save_events()
         logger.debug("✅ Event added and log saved.")
 
-    def get_events(self, limit: int | None = None, event_type: str | None = None) -> list[AdventureEvent]:
+    def get_events(self, limit: int | None = None, event_type: str | None = None, campaign: str | None = None) -> list[AdventureEvent]:
         """Get adventure events, optionally filtered."""
         events = self._events
 
         if event_type:
             events = [e for e in events if e.event_type == event_type]
+
+        if campaign:
+            events = [e for e in events if e.campaign == campaign]
 
         # Sort by timestamp (newest first)
         events = sorted(events, key=lambda e: e.timestamp, reverse=True)

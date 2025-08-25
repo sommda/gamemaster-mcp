@@ -37,6 +37,7 @@ class TestStoragePersistence:
         # Create storage and event
         storage1 = DnDStorage(temp_dir)
         event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.SESSION,
             title="Session Start",
             description="The campaign begins",
@@ -201,6 +202,7 @@ class TestStoragePersistence:
         storage1.create_campaign("File Test Campaign", "Testing file structure")
         
         event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.WORLD,
             title="World Event",
             description="Something happened in the world",

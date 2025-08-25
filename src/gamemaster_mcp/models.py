@@ -420,11 +420,12 @@ class EventType(str, Enum):
 class AdventureEvent(BaseModel):
     """Individual event in the adventure log."""
     id: str = Field(default_factory=lambda: random(length=8))
+    campaign: Annotated[str, "Name of the active campaign in which this event occurred"]
     event_type: EventType
     title: str
     description: str
     timestamp: datetime = Field(default_factory=datetime.now)
-    session_number: int | None = None
+    session_number: Annotated[int | None, "Active session number when this event occurred"] = None
     characters_involved: list[str] = Field(default_factory=list)
     location: str | None = None
     tags: list[str] = Field(default_factory=list)

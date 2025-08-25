@@ -743,6 +743,7 @@ def add_event(
 @tool_with_logging(mcp)
 def get_events(
     limit: Annotated[int | None, Field(description="Maximum number of events to return", ge=1)] = None,
+    campaign: Annotated[str | None, "Get events by campaign name"] = None,
     event_type: Annotated[Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"] | None, Field(description="Filter by event type")] = None,
     search: Annotated[str | None, Field(description="Search events by title/description")] = None,
 ) -> str:
@@ -750,7 +751,7 @@ def get_events(
     if search:
         events = storage.search_events(search)
     else:
-        events = storage.get_events(limit=limit, event_type=event_type)
+        events = storage.get_events(limit=limit, event_type=event_type, campaign=campaign)
 
     if not events:
         return "No events found."

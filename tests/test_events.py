@@ -10,6 +10,7 @@ from gamemaster_mcp.models import AdventureEvent, EventType
 def sample_event():
     """Create a sample adventure event for testing."""
     return AdventureEvent(
+        campaign="Test Campaign",
         event_type=EventType.COMBAT,
         title="Dragon Battle",
         description="The party fought a fierce red dragon in its lair",
@@ -30,6 +31,7 @@ class TestEventManagement:
         
         events = temp_storage.get_events()
         assert len(events) == 1
+        assert events[0].campaign == "Test Campaign"
         assert events[0].title == "Dragon Battle"
         assert events[0].event_type == EventType.COMBAT
         assert events[0].importance == 5
@@ -45,6 +47,7 @@ class TestEventManagement:
         # Add multiple events
         for i in range(5):
             event = AdventureEvent(
+                campaign="Test Campaign",
                 event_type=EventType.ROLEPLAY,
                 title=f"Event {i}",
                 description=f"Description {i}",
@@ -58,18 +61,21 @@ class TestEventManagement:
     def test_get_events_by_type(self, temp_storage):
         """Test getting events filtered by type."""
         combat_event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.COMBAT,
             title="Combat Event",
             description="A battle",
             importance=1
         )
         roleplay_event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.ROLEPLAY,
             title="Roleplay Event", 
             description="A conversation",
             importance=1
         )
         exploration_event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.EXPLORATION,
             title="Exploration Event",
             description="Discovering a new area",
@@ -89,21 +95,64 @@ class TestEventManagement:
         assert len(roleplay_events) == 1
         assert roleplay_events[0].title == "Roleplay Event"
     
+    def test_get_events_by_campaign(self, temp_storage):
+        """Test getting events filtered by campaign."""
+        combat_event = AdventureEvent(
+            campaign="Test Campaign 1",
+            event_type=EventType.COMBAT,
+            title="Combat Event",
+            description="A battle",
+            importance=1
+        )
+        roleplay_event = AdventureEvent(
+            campaign="Test Campaign 2",
+            event_type=EventType.ROLEPLAY,
+            title="Roleplay Event", 
+            description="A conversation",
+            importance=1
+        )
+        exploration_event = AdventureEvent(
+            campaign="Test Campaign 3",
+            event_type=EventType.EXPLORATION,
+            title="Exploration Event",
+            description="Discovering a new area",
+            importance=1
+        )
+        
+        temp_storage.add_event(combat_event)
+        temp_storage.add_event(roleplay_event)
+        temp_storage.add_event(exploration_event)
+        
+        # Test filtering by campaign
+        combat_events = temp_storage.get_events(campaign="Test Campaign 1")
+        assert len(combat_events) == 1
+        assert combat_events[0].title == "Combat Event"
+        
+        roleplay_events = temp_storage.get_events(campaign="Test Campaign 2")
+        assert len(roleplay_events) == 1
+        assert roleplay_events[0].title == "Roleplay Event"
+
+        no_events = temp_storage.get_events(campaign="Not a Campaign")
+        assert len(no_events) == 0
+
     def test_search_events(self, temp_storage):
         """Test searching events by query string."""
         event1 = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.EXPLORATION,
             title="Cave Exploration",
             description="The party explored a mysterious cave",
             importance=1
         )
         event2 = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.QUEST,
             title="Quest Completion",
             description="The party completed their first quest",
             importance=1
         )
         event3 = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.COMBAT,
             title="Cave Troll Fight",
             description="Encountered a troll in the cave depths",
@@ -130,12 +179,14 @@ class TestEventManagement:
     def test_event_importance_levels(self, temp_storage):
         """Test events with different importance levels."""
         minor_event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.ROLEPLAY,
             title="Tavern Chat",
             description="Casual conversation with locals",
             importance=1
         )
         major_event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.QUEST,
             title="Campaign Finale",
             description="The final confrontation with the BBEG",
@@ -160,6 +211,7 @@ class TestEventManagement:
     def test_event_with_tags(self, temp_storage):
         """Test events with custom tags."""
         event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.COMBAT,
             title="Boss Battle",
             description="Epic fight with the dragon lord",
@@ -178,6 +230,7 @@ class TestEventManagement:
     def test_event_with_characters_and_location(self, temp_storage):
         """Test events with character involvement and location tracking."""
         event = AdventureEvent(
+            campaign="Test Campaign",
             event_type=EventType.EXPLORATION,
             title="Dungeon Discovery",
             description="The party found a hidden entrance to ancient ruins",
