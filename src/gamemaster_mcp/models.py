@@ -143,7 +143,7 @@ class GameStatHandler(Handler):
 
         if "ERROR" in record.levelname:
             # Increment error count stat
-            self.stat_tracker.inc("errors")
+            self.gamestats.inc("errors")
 
 # Load GameStats object and attach logging handler
 gamestats = GameStats()
@@ -339,6 +339,23 @@ class SessionNote(BaseModel):
     notes: str = ""
 
 
+class Attack(BaseModel):
+    """Details about a method of attack, including weapon type, to-hit modifiers, and damage"""
+    weapon: Annotated[str, "name of the weapon or body part used to attack"]
+    attack_roll_modifier: Annotated[int, "attack roll modifier to make it easier or harder to hit"]
+    damage_roll: Annotated[str, "dice roll for damage, e.g. 2d4+2"]
+
+
+class CombatParticipant(BaseModel):
+    """Key stats for a participant in combat"""
+    name: Annotated[str, "name of the character or monster"]
+    initiative: Annotated[int, "initiave value, used to determine combat order"]
+    hp: Annotated[int, "current hit points"]
+    ac: Annotated[int, "current armor class based on currently equipped armor"]
+    speed: Annotated[int, "feet this character may move per combat round"]
+    attacks: list[Attack] = Field(default_factory=list)
+
+
 class GameState(BaseModel):
     """Current state of the game."""
     campaign_name: str
@@ -348,7 +365,7 @@ class GameState(BaseModel):
     active_quests: list[str] = Field(default_factory=list)
     party_level: int = 1
     party_funds: str = "0 gp"
-    initiative_order: list[dict[str, Any]] = Field(default_factory=list)
+    initiative_order: list[CombatParticipant] = Field(default_factory=list)
     in_combat: bool = False
     current_turn: str | None = None
     notes: str = ""
@@ -429,5 +446,7 @@ __all__ = [
     "Campaign",
     "EventType",
     "AdventureEvent",
-    "GameStats"
+    "GameStats",
+    "Attack",
+    "CombatParticipant"
 ]

@@ -3,7 +3,7 @@ Tests for game state management in DnDStorage.
 """
 
 import pytest
-from gamemaster_mcp.models import GameState
+from gamemaster_mcp.models import GameState, CombatParticipant, Attack
 
 
 class TestGameStateManagement:
@@ -44,9 +44,9 @@ class TestGameStateManagement:
     def test_update_game_state_combat(self, storage_with_campaign):
         """Test updating combat-related game state."""
         initiative_order = [
-            {"name": "Fighter", "initiative": 18},
-            {"name": "Goblin", "initiative": 15},
-            {"name": "Wizard", "initiative": 12}
+            CombatParticipant(name="Fighter", initiative=18, hp=22, ac=18, speed=30, attacks=[]),
+            CombatParticipant(name="Goblin", initiative=15, hp=18, ac=12, speed=20, attacks=[]),
+            CombatParticipant(name="Wizard", initiative=12, hp=14, ac=10, speed=30, attacks=[])
         ]
         
         storage_with_campaign.update_game_state(
@@ -59,8 +59,8 @@ class TestGameStateManagement:
         assert updated.in_combat is True
         assert updated.current_turn == "Fighter"
         assert len(updated.initiative_order) == 3
-        assert updated.initiative_order[0]["name"] == "Fighter"
-        assert updated.initiative_order[0]["initiative"] == 18
+        assert updated.initiative_order[0].name == "Fighter"
+        assert updated.initiative_order[0].initiative == 18
     
     def test_update_game_state_quests(self, storage_with_campaign):
         """Test updating active quests in game state."""

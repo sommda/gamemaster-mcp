@@ -18,7 +18,7 @@ from .tool_with_logging import tool_with_logging
 from .storage import DnDStorage
 from .models import (
     Character, NPC, Location, Quest, SessionNote, AdventureEvent, EventType,
-    AbilityScore, CharacterClass, Race, Item
+    AbilityScore, CharacterClass, Race, Item, CombatParticipant
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -615,24 +615,24 @@ def get_game_state() -> str:
 # Combat Management Tools
 @tool_with_logging(mcp)
 def start_combat(
-    participants: Annotated[list[dict], Field(description="Combat participants with initiative order")]
+    participants: Annotated[list[CombatParticipant], Field(description="Combat participants with initiative order")]
 ) -> str:
     """Start a combat encounter."""
     # Sort by initiative (highest first)
-    initiative_order = sorted(participants, key=lambda x: x.get("initiative", 0), reverse=True)
+    initiative_order = sorted(participants, key=lambda x: x.initiative, reverse=True)
 
     storage.update_game_state(
         in_combat=True,
         initiative_order=initiative_order,
-        current_turn=initiative_order[0]["name"] if initiative_order else None
+        current_turn=initiative_order[0].name if initiative_order else None
     )
 
     order_text = "\n".join([
-        f"{i+1}. {p['name']} (Initiative: {p.get('initiative', 0)})"
+        f"{i+1}. {p.name} (Initiative: {p.initiative})"
         for i, p in enumerate(initiative_order)
     ])
 
-    return f"**Combat Started!**\n\n**Initiative Order:**\n{order_text}\n\n**Current Turn:** {initiative_order[0]['name'] if initiative_order else 'None'}"
+    return f"**Combat Started!**\n\n**Initiative Order:**\n{order_text}\n\n**Current Turn:** {initiative_order[0].name if initiative_order else 'None'}"
 
 @tool_with_logging(mcp)
 def end_combat() -> str:
@@ -658,16 +658,16 @@ def next_turn() -> str:
     current_index = 0
     if game_state.current_turn:
         for i, participant in enumerate(game_state.initiative_order):
-            if participant["name"] == game_state.current_turn:
+            if participant.name == game_state.current_turn:
                 current_index = i
                 break
 
     next_index = (current_index + 1) % len(game_state.initiative_order)
     next_participant = game_state.initiative_order[next_index]
 
-    storage.update_game_state(current_turn=next_participant["name"])
+    storage.update_game_state(current_turn=next_participant.name)
 
-    return f"**Next Turn:** {next_participant['name']}"
+    return f"**Next Turn:** {next_participant.name}"
 
 # Session Management Tools
 @tool_with_logging(mcp)

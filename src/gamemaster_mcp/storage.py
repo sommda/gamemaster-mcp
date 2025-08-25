@@ -212,6 +212,8 @@ class DnDStorage:
             raise e
 
         character: Character | None = None
+        logger.info(f"_find_character: current campaign: {self._current_campaign.name}")
+        logger.info(f"_find_character: current campaign characters: {self._current_campaign.characters}")
 
         # Try searching by ID first if appropriate
         if len(name_or_id) == 8:
@@ -226,11 +228,12 @@ class DnDStorage:
                 pass
 
         # Search by name
-        try:
-            character = self._current_campaign.characters.get(name_or_id)
-        except (ValueError, TypeError) as e:
-            logger.error(e)
-            return None
+        if not character:
+            try:
+                character = self._current_campaign.characters.get(name_or_id)
+            except (ValueError, TypeError) as e:
+                logger.error(e)
+                return None
 
         return character
 

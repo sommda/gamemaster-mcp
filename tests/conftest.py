@@ -11,7 +11,8 @@ from gamemaster_mcp.storage import DnDStorage
 from gamemaster_mcp.models import (
     Campaign, Character, NPC, Location, Quest, CombatEncounter,
     SessionNote, GameState, AdventureEvent, EventType,
-    CharacterClass, Race, AbilityScore, Item, Spell
+    CharacterClass, Race, AbilityScore, Item, Spell,
+    Attack, CombatParticipant
 )
 
 

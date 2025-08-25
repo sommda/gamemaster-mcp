@@ -77,6 +77,20 @@ class TestCharacterManagement:
         updated = storage_with_campaign.get_character(sample_character.name)
         assert updated.hit_points_current == 25
         assert updated.armor_class == 15
+
+    def test_update_character_by_id(self, storage_with_campaign, sample_character):
+        """Test updating character properties using the character Id"""
+        storage_with_campaign.add_character(sample_character)
+
+        storage_with_campaign.update_character(
+            sample_character.id,
+            hit_points_current=25,
+            armor_class=15
+        )
+
+        updated = storage_with_campaign.get_character(sample_character.name)
+        assert updated.hit_points_current == 25
+        assert updated.armor_class == 15
     
     def test_update_nonexistent_character(self, storage_with_campaign):
         """Test updating a character that doesn't exist."""
