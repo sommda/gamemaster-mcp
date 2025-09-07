@@ -48,7 +48,7 @@ def sample_campaign():
 
 
 @pytest.fixture
-def storage_with_campaign(temp_storage, sample_campaign):
+def storage_with_campaign(temp_storage, sample_campaign) -> Campaign:
     """Create a storage instance with a campaign already loaded."""
     temp_storage.create_campaign(
         sample_campaign.name,

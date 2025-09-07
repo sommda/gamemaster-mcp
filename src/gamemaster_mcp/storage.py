@@ -159,9 +159,8 @@ class DnDStorage:
             return []
 
         return [f.stem for f in campaigns_dir.glob("*.json")]
-
-    def load_campaign(self, name: str) -> Campaign:
-        """Load a specific campaign."""
+    
+    def get_campaign(self, name: str) -> Campaign:
         logger.info(f"📂 Attempting to load campaign: '{name}'")
         campaign_file = self._get_campaign_file(name)
         logger.debug(f"📂 Campaign file path: {campaign_file}")
@@ -173,7 +172,10 @@ class DnDStorage:
         with open(campaign_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        self._current_campaign = Campaign.model_validate(data)
+        return Campaign.model_validate(data)
+
+    def load_campaign(self, name: str) -> Campaign:
+        self._current_campaign = self.get_campaign(name)
         logger.info(f"✅ Successfully loaded campaign '{name}'.")
         return self._current_campaign
 

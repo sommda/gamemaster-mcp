@@ -9,7 +9,7 @@ import re
 import os
 import argparse
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Any
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pydantic import Field
@@ -17,7 +17,7 @@ from pydantic import Field
 from .tool_with_logging import tool_with_logging
 from .storage import DnDStorage
 from .models import (
-    Character, NPC, Location, Quest, SessionNote, AdventureEvent, EventType,
+    Campaign, Character, NPC, Location, Quest, SessionNote, AdventureEvent, EventType,
     AbilityScore, CharacterClass, Race, Item, CombatParticipant
 )
 
@@ -42,6 +42,12 @@ mcp = FastMCP(
     name="D&D Campaign Manager"
 )
 logger.debug("✅ Server initialized, registering tools")
+
+
+# Storage override for tests
+def override_storage(ovr_storage: DnDStorage):
+    global storage
+    storage = ovr_storage
 
 
 # ----------------------------------------------------------------------
@@ -117,6 +123,21 @@ def load_campaign(
     """Load a specific campaign."""
     campaign = storage.load_campaign(name)
     return f"📖 Loaded campaign: '{campaign.name}'. Campaign is now active!"
+
+# Campaign resources
+@mcp.resource("resource://campaigns/{campaign_name}")
+def get_campaign(
+    campaign_name: str
+) -> Campaign:
+    return storage.get_campaign(campaign_name)
+
+@mcp.resource("resource://campaigns")
+def get_campaigns() -> list[str]:
+    return storage.list_campaigns()
+
+@mcp.resource("resource://current_campaign")
+def get_current_campaign() -> str:
+    return storage.get_current_campaign().name
 
 # Character Management Tools
 @tool_with_logging(mcp)

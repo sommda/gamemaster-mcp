@@ -87,3 +87,4 @@ class TestCampaignManagement:
         assert updated.description == "Updated description"
         assert updated.dm_name == "New DM"
         assert updated.world_notes == "Some world notes"
+        
