@@ -745,9 +745,23 @@ def add_event(
     location: Annotated[str | None, Field(description="Location where event occurred")] = None,
     importance: Annotated[int, Field(description="Event importance (1-5)", ge=1, le=5)] = 3,
     tags: Annotated[list[str] | None, Field(description="Tags for categorizing the event")] = None,
+    campaign_name: Annotated[str | None, Field(description="Campaign name (uses current campaign if None)")] = None,
 ) -> str:
     """Add an event to the adventure log."""
+    if campaign_name is None:
+        campaign = storage.get_current_campaign()
+        if not campaign:
+            raise ValueError("No active campaign. Please create or load a campaign first.")
+        campaign_name = campaign.name
+    else:
+        # Validate that the specified campaign exists
+        try:
+            storage.get_campaign(campaign_name)
+        except FileNotFoundError:
+            raise ValueError(f"Campaign '{campaign_name}' not found.")
+    
     event = AdventureEvent(
+        campaign=campaign_name,
         event_type=EventType(event_type),
         title=title,
         description=description,
