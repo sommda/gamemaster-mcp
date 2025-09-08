@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .models import (
     Campaign, Character, NPC, Location, Quest, CombatEncounter,
-    SessionNote, GameState, AdventureEvent
+    SessionNote, GameState, AdventureEvent, Transcript, TranscriptEntry
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -37,6 +37,7 @@ class DnDStorage:
         # Create subdirectories if necessary
         (self.data_dir / "campaigns").mkdir(exist_ok=True)
         (self.data_dir / "events").mkdir(exist_ok=True)
+        (self.data_dir / "transcripts").mkdir(exist_ok=True)
         logger.debug("📂 Storage subdirectories ensured.")
 
         self._current_campaign: Campaign | None = None
@@ -61,6 +62,12 @@ class DnDStorage:
     def _get_events_file(self) -> Path:
         """Get the file path for adventure events."""
         return self.data_dir / "events" / "adventure_log.json"
+    
+    def _get_transcript_dir(self, campaign_name: str) -> Path:
+        return self.data_dir / "transcripts" / campaign_name
+    
+    def _get_transcript_file(self, campaign_name: str, session_number: int) -> Path:
+        return self.data_dir / "transcripts" / campaign_name / f"session_{session_number}.json"
 
     def _save_campaign(self):
         """Save the current campaign to disk."""
@@ -128,6 +135,30 @@ class DnDStorage:
             logger.info(f"✅ Successfully loaded {len(self._events)} events.")
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading events: {e}")
+
+    def _load_transcript(self, campaign_name: str, session_number: int) -> Transcript:
+        transcript_file = self._get_transcript_file(campaign_name, session_number)
+        if not transcript_file.exists():
+            return None
+        try:
+            with open(transcript_file, 'r', encoding='utf-8') as f:
+                transcript_data = json.load(f)
+                transcript = Transcript.model_validate(transcript_data)
+                logger.info(f"✅ Successfully loaded transcript for {campaign_name}, session {session_number}")
+                return transcript
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"❌ Error loading transcript: {e}")
+
+    def _save_transcript(self, transcript: Transcript):
+        transcript_dir = self._get_transcript_dir(transcript.campaign)
+        transcript_dir.mkdir(exist_ok=True)
+        transcript_file = self._get_transcript_file(transcript.campaign, transcript.session_number)
+
+        # Write transcript to the file
+        transcript_data = transcript.model_dump(mode = 'python')
+        with open(transcript_file, 'w', encoding='utf-8') as f:
+            json.dump(transcript_data, f, default=str, indent=4)
+        logger.debug("✅ Transcript saved successfully.")
 
     # Campaign Management
     def create_campaign(self, name: str, description: str, dm_name: str | None = None, setting: str | Path | None = None) -> Campaign:
@@ -462,3 +493,34 @@ class DnDStorage:
             event for event in self._events
             if query_lower in event.title.lower() or query_lower in event.description.lower()
         ]
+    
+    # Transcripts
+    def get_transcript(self, campaign_name: str | None = None, session_number: int | None = None) -> Transcript:
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+        else:
+            campaign = self.get_campaign(campaign_name)
+
+        if session_number is None:
+            session_number = len(campaign.sessions)
+
+        return self._load_transcript(campaign.name, session_number)
+    
+    def add_transcript_entry(self, player_entry: str, game_response: str, campaign_name: str | None = None, session_number: int | None = None) -> Transcript:
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+        else:
+            campaign = self.get_campaign(campaign_name)
+
+        if session_number is None:
+            session_number = len(campaign.sessions)
+
+        transcript = self.get_transcript(campaign_name, session_number)
+        if transcript is None:
+            transcript = Transcript(campaign = campaign.name, session_number = session_number, entries = [])
+        
+        transcript.entries.append(TranscriptEntry(transcript_id = transcript.id, player_entry = player_entry, game_response = game_response))
+        self._save_transcript(transcript)
+        return transcript
+
+

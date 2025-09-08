@@ -18,7 +18,7 @@ from .tool_with_logging import tool_with_logging
 from .storage import DnDStorage
 from .models import (
     Campaign, Character, NPC, Location, Quest, SessionNote, AdventureEvent, EventType,
-    AbilityScore, CharacterClass, Race, Item, CombatParticipant
+    AbilityScore, CharacterClass, Race, Item, CombatParticipant, Transcript
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -865,6 +865,27 @@ Base Encounter XP: {encounter_xp}
 Party Size Multiplier: {multiplier}x
 Adjusted XP: {adjusted_xp}
 **XP per Player: {xp_per_player}**"""
+
+
+# Transcript tools and resources
+@tool_with_logging(mcp)
+def record_interaction(
+    player_entry: Annotated[str, "Text input by the player"],
+    game_response: Annotated[str, "Response send by the game"],
+    campaign_name: Annotated[str | None, "Name of campaign to which this interaction applies, or none to use the current campaign"] = None,
+    session_number: Annotated[int | None, "Session number to which this interaction applies, or none to use the latest session",
+                              Field(description="Session number", ge=1)] = None,
+):
+    storage.add_transcript_entry(player_entry, game_response, campaign_name, session_number)
+
+@mcp.resource("resource://transcripts/{campaign_name}/{session_number}")
+def get_transcript(campaign_name: str, session_number: int) -> Transcript:
+    return storage.get_transcript(campaign_name, session_number)
+
+@mcp.resource("resource://current_transcript")
+def get_current_transcript() -> Transcript:
+    return storage.get_transcript(None, None)
+
 
 logger.debug("✅ All tools successfully registered. Gamemaster-MCP server running! 🎲")
 

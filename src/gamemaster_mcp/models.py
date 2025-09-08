@@ -431,6 +431,23 @@ class AdventureEvent(BaseModel):
     tags: list[str] = Field(default_factory=list)
     importance: int = Field(ge=1, le=5, default=3)  # 1=minor, 5=major
 
+
+class TranscriptEntry(BaseModel):
+    """Individual entry in a transcript."""
+    transcript_id: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    player_entry: str
+    game_response: str
+
+
+class Transcript(BaseModel):
+    """Transcript of a session within a campaign"""
+    id: str = Field(default_factory=lambda: random(length=8))
+    campaign: Annotated[str, "Name of the campaign associated with this transcript"]
+    session_number: Annotated[int, "Session number described by this transcript"]
+    entries: list[TranscriptEntry]
+
+
 __all__ = [
     "AbilityScore",
     "CharacterClass",
@@ -449,5 +466,7 @@ __all__ = [
     "AdventureEvent",
     "GameStats",
     "Attack",
-    "CombatParticipant"
+    "CombatParticipant",
+    "TranscriptEntry",
+    "Transcript"
 ]
