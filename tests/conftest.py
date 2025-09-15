@@ -9,10 +9,23 @@ from datetime import datetime
 
 from gamemaster_mcp.storage import DnDStorage
 from gamemaster_mcp.models import (
-    Campaign, Character, NPC, Location, Quest, CombatEncounter,
-    SessionNote, GameState, AdventureEvent, EventType,
-    CharacterClass, Race, AbilityScore, Item, Spell,
-    Attack, CombatParticipant
+    Campaign,
+    Character,
+    NPC,
+    Location,
+    Quest,
+    CombatEncounter,
+    SessionNote,
+    GameState,
+    AdventureEvent,
+    EventType,
+    CharacterClass,
+    Race,
+    AbilityScore,
+    Item,
+    Spell,
+    Attack,
+    CombatParticipant,
 )
 
 
@@ -43,7 +56,7 @@ def sample_campaign():
         description="A test campaign for unit tests",
         dm_name="Test DM",
         setting="Test Realm",
-        game_state=GameState(campaign_name = "Test Campaign")
+        game_state=GameState(campaign_name="Test Campaign"),
     )
 
 
@@ -54,6 +67,6 @@ def storage_with_campaign(temp_storage, sample_campaign) -> Campaign:
         sample_campaign.name,
         sample_campaign.description,
         sample_campaign.dm_name,
-        sample_campaign.setting
+        sample_campaign.setting,
     )
     return temp_storage

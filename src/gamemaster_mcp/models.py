@@ -15,6 +15,7 @@ from .logutils import logger
 
 class GameStats(BaseModel):
     """Statistics and metadata about the current campaign, and about the MCP server itself across all campaigns."""
+
     ctime: datetime = Field(default_factory=datetime.now)
     last_tool_call: datetime | None = None
     tool_calls: int = 0
@@ -126,8 +127,10 @@ class GameStats(BaseModel):
         except Exception as e:
             logger.error(f"❌ Error incrementing {field} in GameStats: {e}")
 
+
 class GameStatHandler(Handler):
     """Connects the logging module to the GameStats object."""
+
     def __init__(self, gamestats: GameStats, func=None) -> None:
         super().__init__()
         self.gamestats = gamestats
@@ -140,10 +143,10 @@ class GameStatHandler(Handler):
             self.handleError(record)  # Handle errors gracefully
 
     def inc_stat(self, record: LogRecord):
-
         if "ERROR" in record.levelname:
             # Increment error count stat
             self.gamestats.inc("errors")
+
 
 # Load GameStats object and attach logging handler
 gamestats = GameStats()
@@ -152,6 +155,7 @@ logger.addHandler(GameStatHandler(gamestats))
 
 class AbilityScore(BaseModel):
     """D&D ability score with modifiers."""
+
     score: int = Field(ge=1, le=30, description="Raw ability score")
 
     @property
@@ -162,14 +166,18 @@ class AbilityScore(BaseModel):
 
 class CharacterClass(BaseModel):
     """Character class information."""
+
     name: str
     level: int = Field(ge=1, le=20)
-    hit_dice: Annotated[str, "The type of hit dice for this character. E.g.. '1d8'"] = "1d4" # e.g., "1d8"
+    hit_dice: Annotated[str, "The type of hit dice for this character. E.g.. '1d8'"] = (
+        "1d4"  # e.g., "1d8"
+    )
     subclass: Annotated[str | None, "The character's subclass."] = None
 
 
 class Race(BaseModel):
     """Character race information."""
+
     name: str
     subrace: str | None = None
     traits: list[str] = Field(default_factory=list)
@@ -177,6 +185,7 @@ class Race(BaseModel):
 
 class Item(BaseModel):
     """Generic item model."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     description: str | None = None
@@ -189,6 +198,7 @@ class Item(BaseModel):
 
 class Spell(BaseModel):
     """Spell information."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     level: int = Field(ge=0, le=9)
@@ -204,6 +214,7 @@ class Spell(BaseModel):
 
 class Character(BaseModel):
     """Complete character sheet."""
+
     # Basic Info
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
@@ -212,7 +223,9 @@ class Character(BaseModel):
     race: Race
     background: str | None = None
     alignment: str | None = None
-    description: str | None = None  # A brief description of the character's appearance and demeanor.
+    description: str | None = (
+        None  # A brief description of the character's appearance and demeanor.
+    )
     bio: str | None = None  # The character's backstory, personality, and motivations.
 
     # Core Stats
@@ -271,6 +284,7 @@ class Character(BaseModel):
 
 class NPC(BaseModel):
     """Non-player character."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     description: str | None = None
@@ -286,6 +300,7 @@ class NPC(BaseModel):
 
 class Location(BaseModel):
     """Geographic location or settlement."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     location_type: str  # city, town, village, dungeon, forest, etc.
@@ -300,6 +315,7 @@ class Location(BaseModel):
 
 class Quest(BaseModel):
     """Quest or mission."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     title: str
     description: str
@@ -314,6 +330,7 @@ class Quest(BaseModel):
 
 class CombatEncounter(BaseModel):
     """Combat encounter details."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     description: str
@@ -327,6 +344,7 @@ class CombatEncounter(BaseModel):
 
 class SessionNote(BaseModel):
     """Session notes and summary."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     session_number: int
     date: datetime = Field(default_factory=datetime.now)
@@ -341,6 +359,7 @@ class SessionNote(BaseModel):
 
 class Attack(BaseModel):
     """Details about a method of attack, including weapon type, to-hit modifiers, and damage"""
+
     weapon: Annotated[str, "name of the weapon or body part used to attack"]
     attack_roll_modifier: Annotated[int, "attack roll modifier to make it easier or harder to hit"]
     damage_roll: Annotated[str, "dice roll for damage, e.g. 2d4+2"]
@@ -348,6 +367,7 @@ class Attack(BaseModel):
 
 class CombatParticipant(BaseModel):
     """Key stats for a participant in combat"""
+
     name: Annotated[str, "name of the character or monster"]
     initiative: Annotated[int, "initiave value, used to determine combat order"]
     hp: Annotated[int, "current hit points"]
@@ -358,6 +378,7 @@ class CombatParticipant(BaseModel):
 
 class GameState(BaseModel):
     """Current state of the game."""
+
     campaign_name: str
     current_session: int = 1
     current_date_in_game: str | None = None
@@ -374,6 +395,7 @@ class GameState(BaseModel):
 
 class Campaign(BaseModel):
     """Main campaign container."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     name: str
     description: str
@@ -405,7 +427,6 @@ class Campaign(BaseModel):
             raise e
 
 
-
 # Event types for the adventure log
 class EventType(str, Enum):
     COMBAT = "combat"
@@ -419,6 +440,7 @@ class EventType(str, Enum):
 
 class AdventureEvent(BaseModel):
     """Individual event in the adventure log."""
+
     id: str = Field(default_factory=lambda: random(length=8))
     campaign: Annotated[str, "Name of the active campaign in which this event occurred"]
     event_type: EventType
@@ -434,6 +456,7 @@ class AdventureEvent(BaseModel):
 
 class TranscriptEntry(BaseModel):
     """Individual entry in a transcript."""
+
     transcript_id: str
     timestamp: datetime = Field(default_factory=datetime.now)
     player_entry: str
@@ -442,6 +465,7 @@ class TranscriptEntry(BaseModel):
 
 class Transcript(BaseModel):
     """Transcript of a session within a campaign"""
+
     id: str = Field(default_factory=lambda: random(length=8))
     campaign: Annotated[str, "Name of the campaign associated with this transcript"]
     session_number: Annotated[int, "Session number described by this transcript"]
@@ -468,5 +492,5 @@ __all__ = [
     "Attack",
     "CombatParticipant",
     "TranscriptEntry",
-    "Transcript"
+    "Transcript",
 ]

@@ -19,13 +19,14 @@ This document provides comprehensive documentation for all MCP tools and resourc
    - [Utility Tools](#utility-tools)
 3. [MCP Resources](#mcp-resources)
 4. [Data Models](#data-models)
+5. [Complete Data Model Reference](DATA_MODELS.md)
 
 ## Overview
 
 The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 25+ tools for managing all aspects of D&D campaigns, from character creation to adventure logging.
 
 **Core Architecture:**
-- **Campaign-centric design**: All data is organized within Campaign objects
+- **Campaign-centric design**: All data is organized within [Campaign](DATA_MODELS.md#campaign) objects
 - **JSON persistence**: Campaigns stored as `{campaign_name}.json` files
 - **In-memory operations**: Changes happen in memory and auto-save to disk
 - **Event logging**: Separate adventure log for tracking campaign events
@@ -284,7 +285,7 @@ Gets the current game state.
 Initiates a combat encounter with initiative order.
 
 **Parameters:**
-- `participants` (list[CombatParticipant], required): Combat participants with initiative order
+- `participants` (list[[CombatParticipant](DATA_MODELS.md#combatparticipant)], required): Combat participants with initiative order
 
 **Returns:** Combat start message with initiative order and current turn
 
@@ -395,12 +396,12 @@ Calculates experience points for an encounter based on D&D 5e rules.
 The server provides several MCP resources for accessing campaign data:
 
 ### `resource://campaigns/{campaign_name}`
-Returns a specific Campaign object by name.
+Returns a specific [Campaign](DATA_MODELS.md#campaign) object by name.
 
 **Parameters:**
 - `campaign_name` (str): Name of the campaign
 
-**Returns:** Complete Campaign object
+**Returns:** Complete [Campaign](DATA_MODELS.md#campaign) object
 
 ### `resource://campaigns`
 Returns list of all available campaign names.
@@ -416,6 +417,29 @@ Returns the name of the currently active campaign.
 
 **Returns:** Current campaign name
 
+### `resource://characters/{character_name}`
+Returns a specific [Character](DATA_MODELS.md#character) object by name.
+
+**Parameters:**
+- `character_name` (str): Name of the character
+
+**Returns:** Complete [Character](DATA_MODELS.md#character) object with full D&D 5e character sheet
+
+### `resource://campaigns/{campaign_name}/characters`
+Returns all [Character](DATA_MODELS.md#character) objects for a specific campaign.
+
+**Parameters:**
+- `campaign_name` (str): Name of the campaign
+
+**Returns:** List of complete [Character](DATA_MODELS.md#character) objects with full D&D 5e character sheets
+
+### `resource://current_campaign/characters`
+Returns all [Character](DATA_MODELS.md#character) objects for the currently active campaign.
+
+**Parameters:** None
+
+**Returns:** List of complete [Character](DATA_MODELS.md#character) objects with full D&D 5e character sheets, or empty list if no current campaign
+
 ### `resource://transcripts/{campaign_name}/{session_number}`
 Returns transcript for a specific campaign session.
 
@@ -423,14 +447,14 @@ Returns transcript for a specific campaign session.
 - `campaign_name` (str): Campaign name
 - `session_number` (int): Session number
 
-**Returns:** Transcript object with all interactions
+**Returns:** [Transcript](DATA_MODELS.md#transcript) object with all interactions
 
 ### `resource://current_transcript`
 Returns transcript for the current campaign and latest session.
 
 **Parameters:** None
 
-**Returns:** Current Transcript object
+**Returns:** Current [Transcript](DATA_MODELS.md#transcript) object
 
 ## Data Models
 
@@ -438,26 +462,26 @@ The server uses comprehensive Pydantic models for data validation:
 
 ### Core Models
 
-- **`Campaign`**: Main container with characters, NPCs, locations, quests, game state
-- **`Character`**: Complete D&D 5e character sheet with abilities, inventory, spells
-- **`NPC`**: Non-player character with description, bio, relationships
-- **`Location`**: Geographic location with features and connections
-- **`Quest`**: Mission with objectives, status, and rewards
-- **`GameState`**: Current party status, location, combat state
-- **`SessionNote`**: Session summary with events and treasure
-- **`AdventureEvent`**: Logged event with type, importance, and tags
+- **[`Campaign`](DATA_MODELS.md#campaign)**: Main container with characters, NPCs, locations, quests, game state
+- **[`Character`](DATA_MODELS.md#character)**: Complete D&D 5e character sheet with abilities, inventory, spells
+- **[`NPC`](DATA_MODELS.md#npc)**: Non-player character with description, bio, relationships
+- **[`Location`](DATA_MODELS.md#location)**: Geographic location with features and connections
+- **[`Quest`](DATA_MODELS.md#quest)**: Mission with objectives, status, and rewards
+- **[`GameState`](DATA_MODELS.md#gamestate)**: Current party status, location, combat state
+- **[`SessionNote`](DATA_MODELS.md#sessionnote)**: Session summary with events and treasure
+- **[`AdventureEvent`](DATA_MODELS.md#adventureevent)**: Logged event with type, importance, and tags
 
 ### Supporting Models
 
-- **`AbilityScore`**: D&D ability score with automatic modifier calculation
-- **`CharacterClass`**: Class with level, hit dice, and subclass
-- **`Race`**: Race with subrace and traits
-- **`Item`**: Equipment with type, weight, value, and properties
-- **`Spell`**: Spell with level, school, components, and description
-- **`CombatParticipant`**: Combat stats for initiative tracking
-- **`Attack`**: Attack details with modifiers and damage
-- **`TranscriptEntry`**: Individual player-game interaction
-- **`Transcript`**: Collection of interactions for a session
+- **[`AbilityScore`](DATA_MODELS.md#abilityscore)**: D&D ability score with automatic modifier calculation
+- **[`CharacterClass`](DATA_MODELS.md#characterclass)**: Class with level, hit dice, and subclass
+- **[`Race`](DATA_MODELS.md#race)**: Race with subrace and traits
+- **[`Item`](DATA_MODELS.md#item)**: Equipment with type, weight, value, and properties
+- **[`Spell`](DATA_MODELS.md#spell)**: Spell with level, school, components, and description
+- **[`CombatParticipant`](DATA_MODELS.md#combatparticipant)**: Combat stats for initiative tracking
+- **[`Attack`](DATA_MODELS.md#attack)**: Attack details with modifiers and damage
+- **[`TranscriptEntry`](DATA_MODELS.md#transcriptentry)**: Individual player-game interaction
+- **[`Transcript`](DATA_MODELS.md#transcript)**: Collection of interactions for a session
 
 ### Data Validation
 

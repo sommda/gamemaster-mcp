@@ -10,8 +10,17 @@ from datetime import datetime
 from pathlib import Path
 
 from .models import (
-    Campaign, Character, NPC, Location, Quest, CombatEncounter,
-    SessionNote, GameState, AdventureEvent, Transcript, TranscriptEntry
+    Campaign,
+    Character,
+    NPC,
+    Location,
+    Quest,
+    CombatEncounter,
+    SessionNote,
+    GameState,
+    AdventureEvent,
+    Transcript,
+    TranscriptEntry,
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -25,6 +34,7 @@ logging.basicConfig(
 def new_uuid() -> str:
     """Generate a new random 8-character UUID."""
     return shortuuid.random(length=8)
+
 
 class DnDStorage:
     """Handles storage and retrieval of D&D campaign data."""
@@ -56,16 +66,18 @@ class DnDStorage:
         if campaign_name is None:
             raise ValueError("No campaign name provided and no current campaign")
 
-        safe_name = "".join(c for c in campaign_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_name = "".join(
+            c for c in campaign_name if c.isalnum() or c in (" ", "-", "_")
+        ).rstrip()
         return self.data_dir / "campaigns" / f"{safe_name}.json"
 
     def _get_events_file(self) -> Path:
         """Get the file path for adventure events."""
         return self.data_dir / "events" / "adventure_log.json"
-    
+
     def _get_transcript_dir(self, campaign_name: str) -> Path:
         return self.data_dir / "transcripts" / campaign_name
-    
+
     def _get_transcript_file(self, campaign_name: str, session_number: int) -> Path:
         return self.data_dir / "transcripts" / campaign_name / f"session_{session_number}.json"
 
@@ -78,9 +90,9 @@ class DnDStorage:
         campaign_file = self._get_campaign_file()
         logger.debug(f"💾 Saving campaign '{self._current_campaign.name}' to {campaign_file}")
         logger.info(f"💾 Autosaving '{self._current_campaign.name}'")
-        campaign_data = self._current_campaign.model_dump(mode='json')
+        campaign_data = self._current_campaign.model_dump(mode="json")
 
-        with open(campaign_file, 'w', encoding='utf-8') as f:
+        with open(campaign_file, "w", encoding="utf-8") as f:
             json.dump(campaign_data, f, default=str)
         logger.debug(f"✅ Campaign '{self._current_campaign.name}' saved successfully.")
 
@@ -103,7 +115,7 @@ class DnDStorage:
         logger.debug(f"📂 Most recent campaign file is '{latest_file.name}'.")
 
         try:
-            with open(latest_file, 'r', encoding='utf-8') as f:
+            with open(latest_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self._current_campaign = Campaign.model_validate(data)
             logger.info(f"✅ Successfully loaded campaign: {self._current_campaign.name}")
@@ -114,9 +126,9 @@ class DnDStorage:
         """Save adventure events to disk."""
         events_file = self._get_events_file()
         logger.debug(f"💾 Saving {len(self._events)} events to {events_file}...")
-        events_data = [event.model_dump(mode='json') for event in self._events]
+        events_data = [event.model_dump(mode="json") for event in self._events]
 
-        with open(events_file, 'w', encoding='utf-8') as f:
+        with open(events_file, "w", encoding="utf-8") as f:
             json.dump(events_data, f, default=str)
         logger.debug("✅ Events saved successfully.")
 
@@ -129,7 +141,7 @@ class DnDStorage:
             return
 
         try:
-            with open(events_file, 'r', encoding='utf-8') as f:
+            with open(events_file, "r", encoding="utf-8") as f:
                 events_data = json.load(f)
             self._events = [AdventureEvent.model_validate(event) for event in events_data]
             logger.info(f"✅ Successfully loaded {len(self._events)} events.")
@@ -141,10 +153,12 @@ class DnDStorage:
         if not transcript_file.exists():
             return None
         try:
-            with open(transcript_file, 'r', encoding='utf-8') as f:
+            with open(transcript_file, "r", encoding="utf-8") as f:
                 transcript_data = json.load(f)
                 transcript = Transcript.model_validate(transcript_data)
-                logger.info(f"✅ Successfully loaded transcript for {campaign_name}, session {session_number}")
+                logger.info(
+                    f"✅ Successfully loaded transcript for {campaign_name}, session {session_number}"
+                )
                 return transcript
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading transcript: {e}")
@@ -155,13 +169,19 @@ class DnDStorage:
         transcript_file = self._get_transcript_file(transcript.campaign, transcript.session_number)
 
         # Write transcript to the file
-        transcript_data = transcript.model_dump(mode = 'python')
-        with open(transcript_file, 'w', encoding='utf-8') as f:
+        transcript_data = transcript.model_dump(mode="python")
+        with open(transcript_file, "w", encoding="utf-8") as f:
             json.dump(transcript_data, f, default=str, indent=4)
         logger.debug("✅ Transcript saved successfully.")
 
     # Campaign Management
-    def create_campaign(self, name: str, description: str, dm_name: str | None = None, setting: str | Path | None = None) -> Campaign:
+    def create_campaign(
+        self,
+        name: str,
+        description: str,
+        dm_name: str | None = None,
+        setting: str | Path | None = None,
+    ) -> Campaign:
         """Create a new campaign."""
         logger.info(f"✨ Creating new campaign: '{name}'")
         game_state = GameState(campaign_name=name)
@@ -171,7 +191,7 @@ class DnDStorage:
             description=description,
             dm_name=dm_name,
             setting=setting,
-            game_state=game_state
+            game_state=game_state,
         )
 
         self._current_campaign = campaign
@@ -190,7 +210,7 @@ class DnDStorage:
             return []
 
         return [f.stem for f in campaigns_dir.glob("*.json")]
-    
+
     def get_campaign(self, name: str) -> Campaign:
         logger.info(f"📂 Attempting to load campaign: '{name}'")
         campaign_file = self._get_campaign_file(name)
@@ -200,7 +220,7 @@ class DnDStorage:
             logger.error(f"❌ Campaign file not found for '{name}'")
             raise FileNotFoundError(f"Campaign '{name}' not found")
 
-        with open(campaign_file, 'r', encoding='utf-8') as f:
+        with open(campaign_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         return Campaign.model_validate(data)
@@ -231,11 +251,15 @@ class DnDStorage:
         if not self._current_campaign:
             raise ValueError("No current campaign")
 
-        logger.info(f"➕ Adding character '{character.name}' to campaign '{self._current_campaign.name}'.")
+        logger.info(
+            f"➕ Adding character '{character.name}' to campaign '{self._current_campaign.name}'."
+        )
         self._current_campaign.characters[character.name] = character
         self._current_campaign.updated_at = datetime.now()
         self._save_campaign()
-        logger.debug(f"✅ Character '{character.name}' added to campaign: '{self._current_campaign.name}'.")
+        logger.debug(
+            f"✅ Character '{character.name}' added to campaign: '{self._current_campaign.name}'."
+        )
 
     def _find_character(self, name_or_id: str) -> Character | None:
         """Find a character by name or ID."""
@@ -246,7 +270,9 @@ class DnDStorage:
 
         character: Character | None = None
         logger.info(f"_find_character: current campaign: {self._current_campaign.name}")
-        logger.info(f"_find_character: current campaign characters: {self._current_campaign.characters}")
+        logger.info(
+            f"_find_character: current campaign characters: {self._current_campaign.characters}"
+        )
 
         # Try searching by ID first if appropriate
         if len(name_or_id) == 8:
@@ -306,8 +332,12 @@ class DnDStorage:
 
         if new_name and new_name != original_name:
             # If name changed, update the dictionary key
-            logger.debug(f"🏷️ Character name changed from '{original_name}' to '{new_name}'. Updating dictionary key.")
-            self._current_campaign.characters[new_name] = self._current_campaign.characters.pop(original_name)
+            logger.debug(
+                f"🏷️ Character name changed from '{original_name}' to '{new_name}'. Updating dictionary key."
+            )
+            self._current_campaign.characters[new_name] = self._current_campaign.characters.pop(
+                original_name
+            )
 
         self._current_campaign.updated_at = datetime.now()
         self._save_campaign()
@@ -468,7 +498,9 @@ class DnDStorage:
         self._save_events()
         logger.debug("✅ Event added and log saved.")
 
-    def get_events(self, limit: int | None = None, event_type: str | None = None, campaign: str | None = None) -> list[AdventureEvent]:
+    def get_events(
+        self, limit: int | None = None, event_type: str | None = None, campaign: str | None = None
+    ) -> list[AdventureEvent]:
         """Get adventure events, optionally filtered."""
         events = self._events
 
@@ -490,12 +522,15 @@ class DnDStorage:
         """Search events by title or description."""
         query_lower = query.lower()
         return [
-            event for event in self._events
+            event
+            for event in self._events
             if query_lower in event.title.lower() or query_lower in event.description.lower()
         ]
-    
+
     # Transcripts
-    def get_transcript(self, campaign_name: str | None = None, session_number: int | None = None) -> Transcript:
+    def get_transcript(
+        self, campaign_name: str | None = None, session_number: int | None = None
+    ) -> Transcript:
         if campaign_name is None:
             campaign = self.get_current_campaign()
         else:
@@ -505,8 +540,14 @@ class DnDStorage:
             session_number = len(campaign.sessions)
 
         return self._load_transcript(campaign.name, session_number)
-    
-    def add_transcript_entry(self, player_entry: str, game_response: str, campaign_name: str | None = None, session_number: int | None = None) -> Transcript:
+
+    def add_transcript_entry(
+        self,
+        player_entry: str,
+        game_response: str,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> Transcript:
         if campaign_name is None:
             campaign = self.get_current_campaign()
         else:
@@ -517,10 +558,14 @@ class DnDStorage:
 
         transcript = self.get_transcript(campaign_name, session_number)
         if transcript is None:
-            transcript = Transcript(campaign = campaign.name, session_number = session_number, entries = [])
-        
-        transcript.entries.append(TranscriptEntry(transcript_id = transcript.id, player_entry = player_entry, game_response = game_response))
+            transcript = Transcript(
+                campaign=campaign.name, session_number=session_number, entries=[]
+            )
+
+        transcript.entries.append(
+            TranscriptEntry(
+                transcript_id=transcript.id, player_entry=player_entry, game_response=game_response
+            )
+        )
         self._save_transcript(transcript)
         return transcript
-
-

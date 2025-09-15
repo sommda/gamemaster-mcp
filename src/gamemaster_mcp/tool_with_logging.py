@@ -5,14 +5,15 @@ from functools import wraps
 from typing import Any, Callable
 
 tool_log = logging.getLogger("mcp.tools")
-logging.basicConfig(level = logging.INFO)
+logging.basicConfig(level=logging.INFO)
+
 
 def tool_with_logging(
     mcp_app,
     *,
-    exclude: set[str] | None = None,          # arg names to redact entirely
+    exclude: set[str] | None = None,  # arg names to redact entirely
     redact: dict[str, Callable[[Any], Any]] | None = None,  # per-arg redactors
-    max_str_len: int = 500                    # truncate long strings
+    max_str_len: int = 500,  # truncate long strings
 ):
     """
     Decorator factory. Use in place of @mcp.tool:
@@ -36,7 +37,7 @@ def tool_with_logging(
             return {str(k): shorten(vv) for k, vv in v.items()}
         s = str(v)
         if len(s) > max_str_len:
-            return s[:max_str_len] + f"... <{len(s)-max_str_len} more chars>"
+            return s[:max_str_len] + f"... <{len(s) - max_str_len} more chars>"
         return s
 
     def make_safe_args(fn: Callable, args, kwargs):
@@ -61,6 +62,7 @@ def tool_with_logging(
         tool_name = fn.__name__
 
         if is_coro:
+
             @wraps(fn)
             async def wrapper(*args, **kwargs):
                 safe = make_safe_args(fn, args, kwargs)
@@ -71,6 +73,7 @@ def tool_with_logging(
                 tool_log.info("Tool call: %s(%s)", tool_name, payload)
                 return await fn(*args, **kwargs)
         else:
+
             @wraps(fn)
             def wrapper(*args, **kwargs):
                 safe = make_safe_args(fn, args, kwargs)

@@ -8,7 +8,7 @@ from gamemaster_mcp.models import Transcript
 
 class TestTranscriptManagement:
     """Test transcript operations."""
-    
+
     def test_get_empty(self, storage_with_campaign):
         empty_transcript = storage_with_campaign.get_transcript()
         assert empty_transcript is None
@@ -26,5 +26,3 @@ class TestTranscriptManagement:
 
         assert transcript.campaign == storage_with_campaign.get_current_campaign().name
         assert transcript.session_number == 0
-
-        

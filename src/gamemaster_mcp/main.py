@@ -17,18 +17,32 @@ from pydantic import Field
 from .tool_with_logging import tool_with_logging
 from .storage import DnDStorage
 from .models import (
-    Campaign, Character, NPC, Location, Quest, SessionNote, AdventureEvent, EventType,
-    AbilityScore, CharacterClass, Race, Item, CombatParticipant, Transcript
+    Campaign,
+    Character,
+    NPC,
+    Location,
+    Quest,
+    SessionNote,
+    AdventureEvent,
+    EventType,
+    AbilityScore,
+    CharacterClass,
+    Race,
+    Item,
+    CombatParticipant,
+    Transcript,
 )
 
 logger = logging.getLogger("gamemaster-mcp")
 
 logging.basicConfig(
     level=logging.INFO,
-    )
+)
 
 if not load_dotenv():
-    logger.warning("❌ .env file invalid or not found! Please see README.md for instructions. Using project root instead.")
+    logger.warning(
+        "❌ .env file invalid or not found! Please see README.md for instructions. Using project root instead."
+    )
 
 data_path = Path(os.getenv("GAMEMASTER_STORAGE_DIR", "")).resolve()
 logger.debug(f"📂 Data path: {data_path}")
@@ -38,9 +52,7 @@ logger.debug(f"📂 Data path: {data_path}")
 storage = DnDStorage(data_dir=data_path)
 logger.debug("✅ Storage layer initialized")
 
-mcp = FastMCP(
-    name="D&D Campaign Manager"
-)
+mcp = FastMCP(name="D&D Campaign Manager")
 logger.debug("✅ Server initialized, registering tools")
 
 
@@ -54,24 +66,30 @@ def override_storage(ovr_storage: DnDStorage):
 # Tools
 # ----------------------------------------------------------------------
 
+
 # Campaign management tools
 @tool_with_logging(mcp)
 def create_campaign(
     name: Annotated[str, Field(description="Campaign name")],
-    description: Annotated[str, Field(description="Brief decription of the campaign, or a tagline")],
+    description: Annotated[
+        str, Field(description="Brief decription of the campaign, or a tagline")
+    ],
     dm_name: Annotated[str | None, Field(description="Dungeon Master name")] = None,
-    setting: Annotated[str | Path | None, Field(description="""
+    setting: Annotated[
+        str | Path | None,
+        Field(
+            description="""
         Campaign setting - a full description of the setting of the campaign in markdown format, or the path to a `.txt` or `.md` file containing the same.
-        """)] = None,
+        """
+        ),
+    ] = None,
 ) -> str:
     """Create a new D&D campaign."""
     campaign = storage.create_campaign(
-        name=name,
-        description=description,
-        dm_name=dm_name,
-        setting=setting
+        name=name, description=description, dm_name=dm_name, setting=setting
     )
     return f"🌟 Created campaign: '{campaign.name} and set as active 🌟'"
+
 
 @tool_with_logging(mcp)
 def get_campaign_info() -> str:
@@ -93,11 +111,13 @@ def get_campaign_info() -> str:
         "current_session": campaign.game_state.current_session,
         "current_location": campaign.game_state.current_location,
         "party_level": campaign.game_state.party_level,
-        "in_combat": campaign.game_state.in_combat
+        "in_combat": campaign.game_state.in_combat,
     }
 
-    return f"**Campaign: {campaign.name}**\n\n" + \
-           "\n".join([f"**{k.replace('_', ' ').title()}:** {v}" for k, v in info.items()])
+    return f"**Campaign: {campaign.name}**\n\n" + "\n".join(
+        [f"**{k.replace('_', ' ').title()}:** {v}" for k, v in info.items()]
+    )
+
 
 @tool_with_logging(mcp)
 def list_campaigns() -> str:
@@ -116,28 +136,55 @@ def list_campaigns() -> str:
 
     return "**Available Campaigns:**\n" + "\n".join(campaign_list)
 
+
 @tool_with_logging(mcp)
-def load_campaign(
-    name: Annotated[str, Field(description="Campaign name to load")]
-) -> str:
+def load_campaign(name: Annotated[str, Field(description="Campaign name to load")]) -> str:
     """Load a specific campaign."""
     campaign = storage.load_campaign(name)
     return f"📖 Loaded campaign: '{campaign.name}'. Campaign is now active!"
 
+
 # Campaign resources
 @mcp.resource("resource://campaigns/{campaign_name}")
-def get_campaign(
-    campaign_name: str
-) -> Campaign:
+def get_campaign(campaign_name: str) -> Campaign:
     return storage.get_campaign(campaign_name)
+
 
 @mcp.resource("resource://campaigns")
 def get_campaigns() -> list[str]:
     return storage.list_campaigns()
 
+
 @mcp.resource("resource://current_campaign")
 def get_current_campaign() -> str:
     return storage.get_current_campaign().name
+
+
+# Character resources
+@mcp.resource("resource://characters/{character_name}")
+def get_character_resource(character_name: str) -> Character:
+    character = storage.get_character(character_name)
+    if not character:
+        raise FileNotFoundError(f"Character '{character_name}' not found")
+    return character
+
+
+@mcp.resource("resource://campaigns/{campaign_name}/characters")
+def get_campaign_characters(campaign_name: str) -> list[Character]:
+    try:
+        campaign = storage.get_campaign(campaign_name)
+        return list(campaign.characters.values())
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Campaign '{campaign_name}' not found")
+
+
+@mcp.resource("resource://current_campaign/characters")
+def get_current_campaign_characters() -> list[Character]:
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        return []
+    return list(current_campaign.characters.values())
+
 
 # Character Management Tools
 @tool_with_logging(mcp)
@@ -146,9 +193,16 @@ def create_character(
     character_class: Annotated[str, Field(description="Character class")],
     class_level: Annotated[int, Field(description="Class level", ge=1, le=20)],
     race: Annotated[str, Field(description="Character race")],
-    player_name: Annotated[str | None, Field(description="The name of the player in control of this character")] = None,
-    description: Annotated[str | None, Field(description="A brief description of the character's appearance and demeanor.")] = None,
-    bio: Annotated[str | None, Field(description="The character's backstory, personality, and motivations.")] = None,
+    player_name: Annotated[
+        str | None, Field(description="The name of the player in control of this character")
+    ] = None,
+    description: Annotated[
+        str | None,
+        Field(description="A brief description of the character's appearance and demeanor."),
+    ] = None,
+    bio: Annotated[
+        str | None, Field(description="The character's backstory, personality, and motivations.")
+    ] = None,
     background: Annotated[str | None, Field(description="Character background")] = None,
     alignment: Annotated[str | None, Field(description="Character alignment")] = None,
     strength: Annotated[int, Field(description="Strength score", ge=1, le=30)] = 10,
@@ -184,10 +238,9 @@ def create_character(
     storage.add_character(character)
     return f"Created character '{character.name}' (Level {character.character_class.level} {character.race.name} {character.character_class.name})"
 
+
 @tool_with_logging(mcp)
-def get_character(
-    name_or_id: Annotated[str, Field(description="Character name or ID")]
-) -> str:
+def get_character(name_or_id: Annotated[str, Field(description="Character name or ID")]) -> str:
     """Get detailed character information."""
     character = storage.get_character(name_or_id)
     if not character:
@@ -195,20 +248,20 @@ def get_character(
 
     char_info = f"""**{character.name}** (`{character.id}`)
 Level {character.character_class.level} {character.race.name} {character.character_class.name}
-**Player:** {character.player_name or 'N/A'}
-**Background:** {character.background or 'N/A'}
-**Alignment:** {character.alignment or 'N/A'}
+**Player:** {character.player_name or "N/A"}
+**Background:** {character.background or "N/A"}
+**Alignment:** {character.alignment or "N/A"}
 
-**Description:** {character.description or 'No description provided.'}
-**Bio:** {character.bio or 'No bio provided.'}
+**Description:** {character.description or "No description provided."}
+**Bio:** {character.bio or "No bio provided."}
 
 **Ability Scores:**
-• STR: {character.abilities['strength'].score} ({character.abilities['strength'].mod:+d})
-• DEX: {character.abilities['dexterity'].score} ({character.abilities['dexterity'].mod:+d})
-• CON: {character.abilities['constitution'].score} ({character.abilities['constitution'].mod:+d})
-• INT: {character.abilities['intelligence'].score} ({character.abilities['intelligence'].mod:+d})
-• WIS: {character.abilities['wisdom'].score} ({character.abilities['wisdom'].mod:+d})
-• CHA: {character.abilities['charisma'].score} ({character.abilities['charisma'].mod:+d})
+• STR: {character.abilities["strength"].score} ({character.abilities["strength"].mod:+d})
+• DEX: {character.abilities["dexterity"].score} ({character.abilities["dexterity"].mod:+d})
+• CON: {character.abilities["constitution"].score} ({character.abilities["constitution"].mod:+d})
+• INT: {character.abilities["intelligence"].score} ({character.abilities["intelligence"].mod:+d})
+• WIS: {character.abilities["wisdom"].score} ({character.abilities["wisdom"].mod:+d})
+• CHA: {character.abilities["charisma"].score} ({character.abilities["charisma"].mod:+d})
 
 **Combat Stats:**
 • AC: {character.armor_class}
@@ -220,25 +273,44 @@ Level {character.character_class.level} {character.race.name} {character.charact
 
     return char_info
 
+
 @tool_with_logging(mcp)
 def update_character(
     name_or_id: Annotated[str, Field(description="The name or ID of the character to update.")],
-    name: Annotated[str | None, Field(description="New character name. If you change this, you must use the character's ID to identify them.")] = None,
-    player_name: Annotated[str | None, Field(description="The name of the player in control of this character")] = None,
-    description: Annotated[str | None, Field(description="A brief description of the character's appearance and demeanor.")] = None,
-    bio: Annotated[str | None, Field(description="The character's backstory, personality, and motivations.")] = None,
+    name: Annotated[
+        str | None,
+        Field(
+            description="New character name. If you change this, you must use the character's ID to identify them."
+        ),
+    ] = None,
+    player_name: Annotated[
+        str | None, Field(description="The name of the player in control of this character")
+    ] = None,
+    description: Annotated[
+        str | None,
+        Field(description="A brief description of the character's appearance and demeanor."),
+    ] = None,
+    bio: Annotated[
+        str | None, Field(description="The character's backstory, personality, and motivations.")
+    ] = None,
     background: Annotated[str | None, Field(description="Character background")] = None,
     alignment: Annotated[str | None, Field(description="Character alignment")] = None,
     hit_points_current: Annotated[int | None, Field(description="Current hit points", ge=0)] = None,
     hit_points_max: Annotated[int | None, Field(description="Maximum hit points", ge=1)] = None,
-    temporary_hit_points: Annotated[int | None, Field(description="Temporary hit points", ge=0)] = None,
+    temporary_hit_points: Annotated[
+        int | None, Field(description="Temporary hit points", ge=0)
+    ] = None,
     armor_class: Annotated[int | None, Field(description="Armor class")] = None,
     inspiration: Annotated[bool | None, Field(description="Inspiration status")] = None,
     notes: Annotated[str | None, Field(description="Additional notes about the character")] = None,
     strength: Annotated[int | None, Field(description="Strength score", ge=1, le=30)] = None,
     dexterity: Annotated[int | None, Field(description="Dexterity score", ge=1, le=30)] = None,
-    constitution: Annotated[int | None, Field(description="Constitution score", ge=1, le=30)] = None,
-    intelligence: Annotated[int | None, Field(description="Intelligence score", ge=1, le=30)] = None,
+    constitution: Annotated[
+        int | None, Field(description="Constitution score", ge=1, le=30)
+    ] = None,
+    intelligence: Annotated[
+        int | None, Field(description="Intelligence score", ge=1, le=30)
+    ] = None,
     wisdom: Annotated[int | None, Field(description="Wisdom score", ge=1, le=30)] = None,
     charisma: Annotated[int | None, Field(description="Charisma score", ge=1, le=30)] = None,
 ) -> str:
@@ -247,7 +319,9 @@ def update_character(
     if not character:
         return f"❌ Character '{name_or_id}' not found."
 
-    updates = {k: v for k, v in locals().items() if v is not None and k not in ["name_or_id", "character"]}
+    updates = {
+        k: v for k, v in locals().items() if v is not None and k not in ["name_or_id", "character"]
+    }
     updated_fields = [f"{key.replace('_', ' ')}: {value}" for key, value in updates.items()]
 
     if not updates:
@@ -257,17 +331,34 @@ def update_character(
 
     return f"Updated {character.name}'s properties: {'; '.join(updated_fields)}."
 
+
 @tool_with_logging(mcp)
 def bulk_update_characters(
-    names_or_ids: Annotated[list[str], Field(description="List of character names or IDs to update.")],
-    hp_change: Annotated[int | None, Field(description="Amount to change current HP by (positive or negative).")] = None,
-    temp_hp_change: Annotated[int | None, Field(description="Amount to change temporary HP by (positive or negative).")] = None,
-    strength_change: Annotated[int | None, Field(description="Amount to change strength by.")] = None,
-    dexterity_change: Annotated[int | None, Field(description="Amount to change dexterity by.")] = None,
-    constitution_change: Annotated[int | None, Field(description="Amount to change constitution by.")] = None,
-    intelligence_change: Annotated[int | None, Field(description="Amount to change intelligence by.")] = None,
+    names_or_ids: Annotated[
+        list[str], Field(description="List of character names or IDs to update.")
+    ],
+    hp_change: Annotated[
+        int | None, Field(description="Amount to change current HP by (positive or negative).")
+    ] = None,
+    temp_hp_change: Annotated[
+        int | None, Field(description="Amount to change temporary HP by (positive or negative).")
+    ] = None,
+    strength_change: Annotated[
+        int | None, Field(description="Amount to change strength by.")
+    ] = None,
+    dexterity_change: Annotated[
+        int | None, Field(description="Amount to change dexterity by.")
+    ] = None,
+    constitution_change: Annotated[
+        int | None, Field(description="Amount to change constitution by.")
+    ] = None,
+    intelligence_change: Annotated[
+        int | None, Field(description="Amount to change intelligence by.")
+    ] = None,
     wisdom_change: Annotated[int | None, Field(description="Amount to change wisdom by.")] = None,
-    charisma_change: Annotated[int | None, Field(description="Amount to change charisma by.")] = None,
+    charisma_change: Annotated[
+        int | None, Field(description="Amount to change charisma by.")
+    ] = None,
 ) -> str:
     """Update properties for multiple characters at once by a given amount."""
     updates_log = []
@@ -302,32 +393,35 @@ def bulk_update_characters(
             new_hp = character.hit_points_current + hp_change
             # Clamp HP between 0 and max HP
             new_hp = max(0, min(new_hp, character.hit_points_max))
-            char_updates['hit_points_current'] = new_hp
+            char_updates["hit_points_current"] = new_hp
             char_log.append(f"HP -> {new_hp}")
 
         if temp_hp_change is not None:
             new_temp_hp = character.temporary_hit_points + temp_hp_change
             # Temp HP cannot be negative
             new_temp_hp = max(0, new_temp_hp)
-            char_updates['temporary_hit_points'] = new_temp_hp
+            char_updates["temporary_hit_points"] = new_temp_hp
             char_log.append(f"Temp HP -> {new_temp_hp}")
 
         abilities_updated = False
         ability_changes = {
-            "strength": strength_change, "dexterity": dexterity_change,
-            "constitution": constitution_change, "intelligence": intelligence_change,
-            "wisdom": wisdom_change, "charisma": charisma_change
+            "strength": strength_change,
+            "dexterity": dexterity_change,
+            "constitution": constitution_change,
+            "intelligence": intelligence_change,
+            "wisdom": wisdom_change,
+            "charisma": charisma_change,
         }
         for ability, change in ability_changes.items():
             if change is not None:
                 new_score = character.abilities[ability].score + change
-                new_score = max(1, min(new_score, 30)) # Clamp score
+                new_score = max(1, min(new_score, 30))  # Clamp score
                 character.abilities[ability].score = new_score
                 abilities_updated = True
                 char_log.append(f"{ability.capitalize()} -> {new_score}")
 
         if abilities_updated:
-            char_updates['abilities'] = character.abilities
+            char_updates["abilities"] = character.abilities
 
         if char_updates:
             storage.update_character(str(character.id), **char_updates)
@@ -341,13 +435,18 @@ def bulk_update_characters(
 
     return "\n".join(response_parts) if response_parts else "No characters found to update."
 
+
 @tool_with_logging(mcp)
 def add_item_to_character(
-    character_name_or_id: Annotated[str, Field(description="Name or ID of the character to receive the item.")],
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to receive the item.")
+    ],
     item_name: Annotated[str, Field(description="Item name")],
     description: Annotated[str | None, Field(description="Item description")] = None,
     quantity: Annotated[int, Field(description="Quantity", ge=1)] = 1,
-    item_type: Annotated[Literal["weapon", "armor", "consumable", "misc"], Field(description="Item type")] = "misc",
+    item_type: Annotated[
+        Literal["weapon", "armor", "consumable", "misc"], Field(description="Item type")
+    ] = "misc",
     weight: Annotated[float | None, Field(description="Item weight", ge=0)] = None,
     value: Annotated[str | None, Field(description="Item value (e.g., '50 gp')")] = None,
 ) -> str:
@@ -362,13 +461,14 @@ def add_item_to_character(
         quantity=quantity,
         item_type=item_type,
         weight=weight,
-        value=value
+        value=value,
     )
 
     character.inventory.append(item)
     storage.update_character(str(character.id), inventory=character.inventory)
 
     return f"Added {item.quantity}x {item.name} to {character.name}'s inventory"
+
 
 @tool_with_logging(mcp)
 def list_characters() -> str:
@@ -381,20 +481,30 @@ def list_characters() -> str:
     for char_name in characters:
         char = storage.get_character(char_name)
         if char:
-            char_list.append(f"• {char.name} (Level {char.character_class.level} {char.race.name} {char.character_class.name})")
+            char_list.append(
+                f"• {char.name} (Level {char.character_class.level} {char.race.name} {char.character_class.name})"
+            )
 
     return "**Characters:**\n" + "\n".join(char_list)
+
 
 # NPC Management Tools
 @tool_with_logging(mcp)
 def create_npc(
     name: Annotated[str, Field(description="NPC name")],
-    description: Annotated[str | None, Field(description="A brief, public description of the NPC.")] = None,
-    bio: Annotated[str | None, Field(description="A detailed, private bio for the NPC, including secrets.")] = None,
+    description: Annotated[
+        str | None, Field(description="A brief, public description of the NPC.")
+    ] = None,
+    bio: Annotated[
+        str | None, Field(description="A detailed, private bio for the NPC, including secrets.")
+    ] = None,
     race: Annotated[str | None, Field(description="NPC race")] = None,
     occupation: Annotated[str | None, Field(description="NPC occupation")] = None,
     location: Annotated[str | None, Field(description="Current location")] = None,
-    attitude: Annotated[Literal["friendly", "neutral", "hostile", "unknown"] | None, Field(description="Attitude towards party")] = None,
+    attitude: Annotated[
+        Literal["friendly", "neutral", "hostile", "unknown"] | None,
+        Field(description="Attitude towards party"),
+    ] = None,
     notes: Annotated[str, Field(description="Additional notes")] = "",
 ) -> str:
     """Create a new NPC."""
@@ -406,34 +516,34 @@ def create_npc(
         occupation=occupation,
         location=location,
         attitude=attitude,
-        notes=notes
+        notes=notes,
     )
 
     storage.add_npc(npc)
     return f"Created NPC '{npc.name}'"
 
+
 @tool_with_logging(mcp)
-def get_npc(
-    name: Annotated[str, Field(description="NPC name")]
-) -> str:
+def get_npc(name: Annotated[str, Field(description="NPC name")]) -> str:
     """Get NPC information."""
     npc = storage.get_npc(name)
     if not npc:
         return f"NPC '{name}' not found."
 
     npc_info = f"""**{npc.name}** (`{npc.id}`)
-**Race:** {npc.race or 'Unknown'}
-**Occupation:** {npc.occupation or 'Unknown'}
-**Location:** {npc.location or 'Unknown'}
-**Attitude:** {npc.attitude or 'Neutral'}
+**Race:** {npc.race or "Unknown"}
+**Occupation:** {npc.occupation or "Unknown"}
+**Location:** {npc.location or "Unknown"}
+**Attitude:** {npc.attitude or "Neutral"}
 
-**Description:** {npc.description or 'No description available.'}
-**Bio:** {npc.bio or 'No bio available.'}
+**Description:** {npc.description or "No description available."}
+**Bio:** {npc.bio or "No bio available."}
 
-**Notes:** {npc.notes or 'No additional notes.'}
+**Notes:** {npc.notes or "No additional notes."}
 """
 
     return npc_info
+
 
 @tool_with_logging(mcp)
 def list_npcs() -> str:
@@ -451,11 +561,14 @@ def list_npcs() -> str:
 
     return "**NPCs:**\n" + "\n".join(npc_list)
 
+
 # Location Management Tools
 @tool_with_logging(mcp)
 def create_location(
     name: Annotated[str, Field(description="Location name")],
-    location_type: Annotated[str, Field(description="Type of location (city, town, village, dungeon, etc.)")],
+    location_type: Annotated[
+        str, Field(description="Type of location (city, town, village, dungeon, etc.)")
+    ],
     description: Annotated[str, Field(description="Location description")],
     population: Annotated[int | None, Field(description="Population (if applicable)", ge=0)] = None,
     government: Annotated[str | None, Field(description="Government type")] = None,
@@ -470,16 +583,15 @@ def create_location(
         population=population,
         government=government,
         notable_features=notable_features or [],
-        notes=notes
+        notes=notes,
     )
 
     storage.add_location(location)
     return f"Created location '{location.name}' ({location.location_type})"
 
+
 @tool_with_logging(mcp)
-def get_location(
-    name: Annotated[str, Field(description="Location name")]
-) -> str:
+def get_location(name: Annotated[str, Field(description="Location name")]) -> str:
     """Get location information."""
     location = storage.get_location(name)
     if not location:
@@ -489,16 +601,17 @@ def get_location(
 
 **Description:** {location.description}
 
-**Population:** {location.population or 'Unknown'}
-**Government:** {location.government or 'Unknown'}
+**Population:** {location.population or "Unknown"}
+**Government:** {location.government or "Unknown"}
 
 **Notable Features:**
-{chr(10).join(['• ' + feature for feature in location.notable_features]) if location.notable_features else 'None listed'}
+{chr(10).join(["• " + feature for feature in location.notable_features]) if location.notable_features else "None listed"}
 
-**Notes:** {location.notes or 'No additional notes.'}
+**Notes:** {location.notes or "No additional notes."}
 """
 
     return loc_info
+
 
 @tool_with_logging(mcp)
 def list_locations() -> str:
@@ -514,6 +627,7 @@ def list_locations() -> str:
             loc_list.append(f"• {loc.name} ({loc.location_type})")
 
     return "**Locations:**\n" + "\n".join(loc_list)
+
 
 # Quest Management Tools
 @tool_with_logging(mcp)
@@ -532,17 +646,23 @@ def create_quest(
         giver=giver,
         objectives=objectives or [],
         reward=reward,
-        notes=notes
+        notes=notes,
     )
 
     storage.add_quest(quest)
     return f"Created quest '{quest.title}'"
 
+
 @tool_with_logging(mcp)
 def update_quest(
     title: Annotated[str, Field(description="Quest title")],
-    status: Annotated[Literal["active", "completed", "failed", "on_hold"] | None, Field(description="New quest status")] = None,
-    completed_objective: Annotated[str | None, Field(description="Objective to mark as completed")] = None,
+    status: Annotated[
+        Literal["active", "completed", "failed", "on_hold"] | None,
+        Field(description="New quest status"),
+    ] = None,
+    completed_objective: Annotated[
+        str | None, Field(description="Objective to mark as completed")
+    ] = None,
 ) -> str:
     """Update quest status or complete objectives."""
     quest = storage.get_quest(title)
@@ -553,15 +673,22 @@ def update_quest(
         storage.update_quest_status(title, status)
 
     if completed_objective:
-        if completed_objective in quest.objectives and completed_objective not in quest.completed_objectives:
+        if (
+            completed_objective in quest.objectives
+            and completed_objective not in quest.completed_objectives
+        ):
             quest.completed_objectives.append(completed_objective)
             storage._save_campaign()  # Direct save since we modified the object
 
     return f"Updated quest '{title}'"
 
+
 @tool_with_logging(mcp)
 def list_quests(
-    status: Annotated[Literal["active", "completed", "failed", "on_hold"] | None, Field(description="Filter by status")] = None,
+    status: Annotated[
+        Literal["active", "completed", "failed", "on_hold"] | None,
+        Field(description="Filter by status"),
+    ] = None,
 ) -> str:
     """List quests, optionally filtered by status."""
     quests = storage.list_quests(status)
@@ -579,13 +706,18 @@ def list_quests(
 
     return "**Quests:**\n" + "\n".join(quest_list)
 
+
 # Game State Management Tools
 @tool_with_logging(mcp)
 def update_game_state(
     current_location: Annotated[str | None, Field(description="Current party location")] = None,
-    current_session: Annotated[int | None, Field(description="Current session number", ge=1)] = None,
+    current_session: Annotated[
+        int | None, Field(description="Current session number", ge=1)
+    ] = None,
     current_date_in_game: Annotated[str | None, Field(description="Current in-game date")] = None,
-    party_level: Annotated[int | None, Field(description="Average party level", ge=1, le=20)] = None,
+    party_level: Annotated[
+        int | None, Field(description="Average party level", ge=1, le=20)
+    ] = None,
     party_funds: Annotated[str | None, Field(description="Party treasure/funds")] = None,
     in_combat: Annotated[bool | None, Field(description="Whether party is in combat")] = None,
     notes: Annotated[str | None, Field(description="Current situation notes")] = None,
@@ -610,6 +742,7 @@ def update_game_state(
     storage.update_game_state(**kwargs)
     return "Updated game state"
 
+
 @tool_with_logging(mcp)
 def get_game_state() -> str:
     """Get the current game state."""
@@ -620,23 +753,26 @@ def get_game_state() -> str:
     state_info = f"""**Game State**
 **Campaign:** {game_state.campaign_name}
 **Session:** {game_state.current_session}
-**Location:** {game_state.current_location or 'Unknown'}
-**Date (In-Game):** {game_state.current_date_in_game or 'Unknown'}
+**Location:** {game_state.current_location or "Unknown"}
+**Date (In-Game):** {game_state.current_date_in_game or "Unknown"}
 **Party Level:** {game_state.party_level}
 **Party Funds:** {game_state.party_funds}
-**In Combat:** {'Yes' if game_state.in_combat else 'No'}
+**In Combat:** {"Yes" if game_state.in_combat else "No"}
 
 **Active Quests:** {len(game_state.active_quests)}
 
-**Notes:** {game_state.notes or 'No current notes.'}
+**Notes:** {game_state.notes or "No current notes."}
 """
 
     return state_info
 
+
 # Combat Management Tools
 @tool_with_logging(mcp)
 def start_combat(
-    participants: Annotated[list[CombatParticipant], Field(description="Combat participants with initiative order")]
+    participants: Annotated[
+        list[CombatParticipant], Field(description="Combat participants with initiative order")
+    ],
 ) -> str:
     """Start a combat encounter."""
     # Sort by initiative (highest first)
@@ -645,25 +781,22 @@ def start_combat(
     storage.update_game_state(
         in_combat=True,
         initiative_order=initiative_order,
-        current_turn=initiative_order[0].name if initiative_order else None
+        current_turn=initiative_order[0].name if initiative_order else None,
     )
 
-    order_text = "\n".join([
-        f"{i+1}. {p.name} (Initiative: {p.initiative})"
-        for i, p in enumerate(initiative_order)
-    ])
+    order_text = "\n".join(
+        [f"{i + 1}. {p.name} (Initiative: {p.initiative})" for i, p in enumerate(initiative_order)]
+    )
 
     return f"**Combat Started!**\n\n**Initiative Order:**\n{order_text}\n\n**Current Turn:** {initiative_order[0].name if initiative_order else 'None'}"
+
 
 @tool_with_logging(mcp)
 def end_combat() -> str:
     """End the current combat encounter."""
-    storage.update_game_state(
-        in_combat=False,
-        initiative_order=[],
-        current_turn=None
-    )
+    storage.update_game_state(in_combat=False, initiative_order=[], current_turn=None)
     return "Combat ended."
+
 
 @tool_with_logging(mcp)
 def next_turn() -> str:
@@ -690,6 +823,7 @@ def next_turn() -> str:
 
     return f"**Next Turn:** {next_participant.name}"
 
+
 # Session Management Tools
 @tool_with_logging(mcp)
 def add_session_note(
@@ -697,9 +831,15 @@ def add_session_note(
     summary: Annotated[str, Field(description="Session summary")],
     title: Annotated[str | None, Field(description="Session title")] = None,
     events: Annotated[list[str] | None, Field(description="Key events that occurred")] = None,
-    characters_present: Annotated[list[str] | None, Field(description="Characters present in session")] = None,
-    experience_gained: Annotated[int | None, Field(description="Experience points gained", ge=0)] = None,
-    treasure_found: Annotated[list[str] | None, Field(description="Treasure or items found")] = None,
+    characters_present: Annotated[
+        list[str] | None, Field(description="Characters present in session")
+    ] = None,
+    experience_gained: Annotated[
+        int | None, Field(description="Experience points gained", ge=0)
+    ] = None,
+    treasure_found: Annotated[
+        list[str] | None, Field(description="Treasure or items found")
+    ] = None,
     notes: Annotated[str, Field(description="Additional notes")] = "",
 ) -> str:
     """Add notes for a game session."""
@@ -711,11 +851,12 @@ def add_session_note(
         characters_present=characters_present or [],
         experience_gained=experience_gained,
         treasure_found=treasure_found or [],
-        notes=notes
+        notes=notes,
     )
 
     storage.add_session_note(session_note)
     return f"Added session note for Session {session_note.session_number}"
+
 
 @tool_with_logging(mcp)
 def get_sessions() -> str:
@@ -729,23 +870,33 @@ def get_sessions() -> str:
         title = session.title or "No title"
         date = session.date.strftime("%Y-%m-%d")
         session_list.append(f"**Session {session.session_number}** ({date}): {title}")
-        session_list.append(f"  {session.summary[:100]}{'...' if len(session.summary) > 100 else ''}")
+        session_list.append(
+            f"  {session.summary[:100]}{'...' if len(session.summary) > 100 else ''}"
+        )
         session_list.append("")
 
     return "**Session Notes:**\n\n" + "\n".join(session_list)
 
+
 # Adventure Log Tools
 @tool_with_logging(mcp)
 def add_event(
-    event_type: Annotated[Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"], Field(description="Type of event")],
+    event_type: Annotated[
+        Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"],
+        Field(description="Type of event"),
+    ],
     title: Annotated[str, Field(description="Event title")],
     description: Annotated[str, Field(description="Event description")],
     session_number: Annotated[int | None, Field(description="Session number", ge=1)] = None,
-    characters_involved: Annotated[list[str] | None, Field(description="Characters involved in the event")] = None,
+    characters_involved: Annotated[
+        list[str] | None, Field(description="Characters involved in the event")
+    ] = None,
     location: Annotated[str | None, Field(description="Location where event occurred")] = None,
     importance: Annotated[int, Field(description="Event importance (1-5)", ge=1, le=5)] = 3,
     tags: Annotated[list[str] | None, Field(description="Tags for categorizing the event")] = None,
-    campaign_name: Annotated[str | None, Field(description="Campaign name (uses current campaign if None)")] = None,
+    campaign_name: Annotated[
+        str | None, Field(description="Campaign name (uses current campaign if None)")
+    ] = None,
 ) -> str:
     """Add an event to the adventure log."""
     if campaign_name is None:
@@ -759,7 +910,7 @@ def add_event(
             storage.get_campaign(campaign_name)
         except FileNotFoundError:
             raise ValueError(f"Campaign '{campaign_name}' not found.")
-    
+
     event = AdventureEvent(
         campaign=campaign_name,
         event_type=EventType(event_type),
@@ -769,17 +920,24 @@ def add_event(
         characters_involved=characters_involved or [],
         location=location,
         importance=importance,
-        tags=tags or []
+        tags=tags or [],
     )
 
     storage.add_event(event)
     return f"Added {event_type.lower()} event: '{event.title}'"
 
+
 @tool_with_logging(mcp)
 def get_events(
-    limit: Annotated[int | None, Field(description="Maximum number of events to return", ge=1)] = None,
+    limit: Annotated[
+        int | None, Field(description="Maximum number of events to return", ge=1)
+    ] = None,
     campaign: Annotated[str | None, "Get events by campaign name"] = None,
-    event_type: Annotated[Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"] | None, Field(description="Filter by event type")] = None,
+    event_type: Annotated[
+        Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"]
+        | None,
+        Field(description="Filter by event type"),
+    ] = None,
     search: Annotated[str | None, Field(description="Search events by title/description")] = None,
 ) -> str:
     """Get events from the adventure log."""
@@ -799,12 +957,15 @@ def get_events(
 
         event_list.append(f"**{event.title}** [{event.event_type}] {importance_stars}")
         event_list.append(f"  {timestamp}{session_text}")
-        event_list.append(f"  {event.description[:150]}{'...' if len(event.description) > 150 else ''}")
+        event_list.append(
+            f"  {event.description[:150]}{'...' if len(event.description) > 150 else ''}"
+        )
         if event.location:
             event_list.append(f"  📍 {event.location}")
         event_list.append("")
 
     return "**Adventure Log:**\n\n" + "\n".join(event_list)
+
 
 # Utility Tools
 @tool_with_logging(mcp)
@@ -817,7 +978,7 @@ def roll_dice(
     dice_notation = dice_notation.lower().strip()
 
     # Parse dice notation (e.g., "1d20", "3d6+2", "2d8-1")
-    pattern = r'(\d+)d(\d+)([+-]\d+)?'
+    pattern = r"(\d+)d(\d+)([+-]\d+)?"
     match = re.match(pattern, dice_notation)
 
     if not match:
@@ -856,6 +1017,7 @@ def roll_dice(
 
         return f"🎲 **{dice_notation}** [{rolls_text}]{modifier_text} = **{total}**"
 
+
 @tool_with_logging(mcp)
 def calculate_experience(
     party_size: Annotated[int, Field(description="Number of party members", ge=1)],
@@ -886,15 +1048,23 @@ Adjusted XP: {adjusted_xp}
 def record_interaction(
     player_entry: Annotated[str, "Text input by the player"],
     game_response: Annotated[str, "Response send by the game"],
-    campaign_name: Annotated[str | None, "Name of campaign to which this interaction applies, or none to use the current campaign"] = None,
-    session_number: Annotated[int | None, "Session number to which this interaction applies, or none to use the latest session",
-                              Field(description="Session number", ge=1)] = None,
+    campaign_name: Annotated[
+        str | None,
+        "Name of campaign to which this interaction applies, or none to use the current campaign",
+    ] = None,
+    session_number: Annotated[
+        int | None,
+        "Session number to which this interaction applies, or none to use the latest session",
+        Field(description="Session number", ge=1),
+    ] = None,
 ):
     storage.add_transcript_entry(player_entry, game_response, campaign_name, session_number)
+
 
 @mcp.resource("resource://transcripts/{campaign_name}/{session_number}")
 def get_transcript(campaign_name: str, session_number: int) -> Transcript:
     return storage.get_transcript(campaign_name, session_number)
+
 
 @mcp.resource("resource://current_transcript")
 def get_current_transcript() -> Transcript:
@@ -903,21 +1073,17 @@ def get_current_transcript() -> Transcript:
 
 logger.debug("✅ All tools successfully registered. Gamemaster-MCP server running! 🎲")
 
+
 def main() -> None:
     """Main entry point for the D&D MCP Server."""
     parser = argparse.ArgumentParser(description="Server configuration")
 
     parser.add_argument(
-        "--transport",
-        type=str,
-        help="Transport type to use with the server (optional)"
+        "--transport", type=str, help="Transport type to use with the server (optional)"
     )
 
     parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port number to run the server on (default: 8000)"
+        "--port", type=int, default=8000, help="Port number to run the server on (default: 8000)"
     )
 
     args = parser.parse_args()
@@ -926,6 +1092,7 @@ def main() -> None:
         mcp.run(transport=args.transport, port=args.port)
     else:
         mcp.run()
+
 
 if __name__ == "__main__":
     main()

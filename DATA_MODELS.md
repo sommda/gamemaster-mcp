@@ -1,0 +1,627 @@
+# Data Models Reference
+
+This document provides comprehensive documentation for all data models used in the Gamemaster MCP Server. All models are implemented using [Pydantic](https://docs.pydantic.dev/) and provide full type validation and serialization.
+
+## Table of Contents
+
+1. [Core Campaign Models](#core-campaign-models)
+   - [Campaign](#campaign)
+   - [GameState](#gamestate)
+2. [Character Models](#character-models)
+   - [Character](#character)
+   - [AbilityScore](#abilityscore)
+   - [CharacterClass](#characterclass)
+   - [Race](#race)
+3. [World Building Models](#world-building-models)
+   - [NPC](#npc)
+   - [Location](#location)
+   - [Quest](#quest)
+4. [Equipment and Items](#equipment-and-items)
+   - [Item](#item)
+   - [Spell](#spell)
+5. [Combat Models](#combat-models)
+   - [CombatParticipant](#combatparticipant)
+   - [Attack](#attack)
+   - [CombatEncounter](#combatencounter)
+6. [Session Management](#session-management)
+   - [SessionNote](#sessionnote)
+   - [AdventureEvent](#adventureevent)
+   - [EventType](#eventtype)
+7. [Transcript Models](#transcript-models)
+   - [Transcript](#transcript)
+   - [TranscriptEntry](#transcriptentry)
+8. [System Models](#system-models)
+   - [GameStats](#gamestats)
+
+---
+
+## Core Campaign Models
+
+### Campaign
+
+The main container model that holds all campaign data.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Campaign name
+- `description` (str): Campaign description
+- `dm_name` (str | None): Dungeon Master name
+- `setting` (str | Path | None): Campaign setting description or path to file
+- `characters` (dict[str, Character]): All player characters indexed by name
+- `npcs` (dict[str, NPC]): All NPCs indexed by name
+- `locations` (dict[str, Location]): All locations indexed by name
+- `quests` (dict[str, Quest]): All quests indexed by title
+- `encounters` (dict[str, CombatEncounter]): Combat encounters indexed by name
+- `sessions` (list[SessionNote]): List of session notes
+- `game_state` (GameState): Current game state
+- `world_notes` (str): Additional world-building notes
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime | None): Last update timestamp
+
+**Methods:**
+- `get_setting() -> str`: Returns the setting text, handling both string and file paths
+
+**Example:**
+```json
+{
+  "id": "ABC12345",
+  "name": "Rise of the Dragon Lords",
+  "description": "Epic campaign against ancient dragons",
+  "dm_name": "John Smith",
+  "setting": "A world where dragons have returned...",
+  "characters": {...},
+  "npcs": {...},
+  "locations": {...},
+  "game_state": {...},
+  "created_at": "2024-01-15T10:30:00"
+}
+```
+
+### GameState
+
+Tracks the current state of the campaign session.
+
+**Fields:**
+- `campaign_name` (str): Name of the associated campaign
+- `current_session` (int): Current session number (default: 1)
+- `current_date_in_game` (str | None): In-game date
+- `current_location` (str | None): Current party location
+- `active_quests` (list[str]): List of active quest titles
+- `party_level` (int): Average party level (default: 1)
+- `party_funds` (str): Party treasure/funds (default: "0 gp")
+- `initiative_order` (list[CombatParticipant]): Combat initiative order
+- `in_combat` (bool): Whether party is currently in combat
+- `current_turn` (str | None): Whose turn it is in combat
+- `notes` (str): Current situation notes
+- `updated_at` (datetime): Last update timestamp
+
+**Example:**
+```json
+{
+  "campaign_name": "Rise of the Dragon Lords",
+  "current_session": 5,
+  "current_location": "Dragon's Lair",
+  "party_level": 8,
+  "party_funds": "2500 gp",
+  "in_combat": true,
+  "current_turn": "Aragorn",
+  "notes": "Party is low on spell slots"
+}
+```
+
+---
+
+## Character Models
+
+### Character
+
+Complete D&D 5e character sheet model.
+
+**Basic Information:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Character name
+- `player_name` (str | None): Name of controlling player
+- `character_class` (CharacterClass): Class and level information
+- `race` (Race): Race and subrace information
+- `background` (str | None): Character background
+- `alignment` (str | None): Character alignment
+- `description` (str | None): Appearance and demeanor
+- `bio` (str | None): Backstory, personality, and motivations
+
+**Core Stats:**
+- `abilities` (dict[str, AbilityScore]): Six D&D ability scores
+  - Keys: "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"
+  - Values: AbilityScore objects with score and computed modifier
+
+**Combat Stats:**
+- `armor_class` (int): Armor class (default: 10)
+- `hit_points_max` (int): Maximum hit points (default: 1)
+- `hit_points_current` (int): Current hit points (default: 1)
+- `temporary_hit_points` (int): Temporary hit points (default: 0)
+- `hit_dice_remaining` (str): Remaining hit dice (default: "1d8")
+- `death_saves_success` (int): Successful death saves (0-3)
+- `death_saves_failure` (int): Failed death saves (0-3)
+
+**Skills & Proficiencies:**
+- `proficiency_bonus` (int): Proficiency bonus (default: 2)
+- `skill_proficiencies` (list[str]): List of skill proficiencies
+- `saving_throw_proficiencies` (list[str]): List of saving throw proficiencies
+
+**Equipment:**
+- `inventory` (list[Item]): Character's inventory
+- `equipment` (dict[str, Item | None]): Currently equipped items
+  - Keys: "weapon_main", "weapon_off", "armor", "shield"
+
+**Spellcasting:**
+- `spellcasting_ability` (str | None): Primary spellcasting ability
+- `spell_slots` (dict[int, int]): Maximum spell slots by level
+- `spell_slots_used` (dict[int, int]): Used spell slots by level
+- `spells_known` (list[Spell]): Known spells
+
+**Character Features:**
+- `features_and_traits` (list[str]): Class features and racial traits
+- `languages` (list[str]): Known languages
+
+**Miscellaneous:**
+- `inspiration` (bool): Whether character has inspiration
+- `notes` (str): Additional character notes
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
+### AbilityScore
+
+D&D ability score with automatic modifier calculation.
+
+**Fields:**
+- `score` (int): Raw ability score (1-30)
+
+**Properties:**
+- `mod` (int): Calculated modifier: `(score - 10) // 2`
+
+**Example:**
+```json
+{
+  "score": 16,
+  "mod": 3
+}
+```
+
+### CharacterClass
+
+Character class information.
+
+**Fields:**
+- `name` (str): Class name (e.g., "Fighter", "Wizard")
+- `level` (int): Character level (1-20)
+- `hit_dice` (str): Hit dice type (default: "1d4")
+- `subclass` (str | None): Subclass name
+
+**Example:**
+```json
+{
+  "name": "Fighter",
+  "level": 5,
+  "hit_dice": "1d10",
+  "subclass": "Champion"
+}
+```
+
+### Race
+
+Character race information.
+
+**Fields:**
+- `name` (str): Race name (e.g., "Human", "Elf")
+- `subrace` (str | None): Subrace name (e.g., "High Elf")
+- `traits` (list[str]): Racial traits
+
+**Example:**
+```json
+{
+  "name": "Elf",
+  "subrace": "High Elf",
+  "traits": ["Darkvision", "Keen Senses", "Fey Ancestry"]
+}
+```
+
+---
+
+## World Building Models
+
+### NPC
+
+Non-player character model.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): NPC name
+- `description` (str | None): Public description
+- `bio` (str | None): Detailed backstory, motivations, and secrets
+- `race` (str | None): NPC race
+- `occupation` (str | None): NPC occupation
+- `location` (str | None): Current location
+- `attitude` (str | None): Attitude towards party ("friendly", "neutral", "hostile", etc.)
+- `notes` (str): Additional notes
+- `stats` (dict[str, Any] | None): Combat stats if needed
+- `relationships` (dict[str, str]): Character relationships (character_name: relationship)
+
+**Example:**
+```json
+{
+  "id": "NPC12345",
+  "name": "Elara the Wise",
+  "description": "An elderly sage with silver hair",
+  "bio": "Former court wizard seeking redemption",
+  "race": "Human",
+  "occupation": "Sage",
+  "location": "Tower of Knowledge",
+  "attitude": "friendly",
+  "relationships": {
+    "Gandalf": "Mentor",
+    "Aragorn": "Ally"
+  }
+}
+```
+
+### Location
+
+Geographic location or settlement.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Location name
+- `location_type` (str): Type (city, town, village, dungeon, forest, etc.)
+- `description` (str): Location description
+- `population` (int | None): Population if applicable
+- `government` (str | None): Government type
+- `notable_features` (list[str]): Notable features
+- `npcs` (list[str]): NPC names present at this location
+- `connections` (list[str]): Connected location names
+- `notes` (str): Additional notes
+
+**Example:**
+```json
+{
+  "id": "LOC12345",
+  "name": "Waterdeep",
+  "location_type": "city",
+  "description": "The City of Splendors",
+  "population": 130000,
+  "government": "Council of Lords",
+  "notable_features": ["Castle Ward", "Dock Ward", "Undermountain"],
+  "npcs": ["Lord Piergeiron", "Durnan"],
+  "connections": ["Neverwinter", "Baldur's Gate"]
+}
+```
+
+### Quest
+
+Quest or mission model.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `title` (str): Quest title
+- `description` (str): Quest description
+- `giver` (str | None): NPC who gave the quest
+- `status` (str): Quest status ("active", "completed", "failed", "on_hold")
+- `objectives` (list[str]): Quest objectives
+- `completed_objectives` (list[str]): Completed objectives
+- `reward` (str | None): Quest reward
+- `notes` (str): Additional notes
+- `created_at` (datetime): Creation timestamp
+
+**Example:**
+```json
+{
+  "id": "QST12345",
+  "title": "The Lost Crown",
+  "description": "Retrieve the ancient crown from the cursed tomb",
+  "giver": "King Aldric",
+  "status": "active",
+  "objectives": [
+    "Find the tomb entrance",
+    "Defeat the tomb guardians",
+    "Retrieve the crown"
+  ],
+  "completed_objectives": ["Find the tomb entrance"],
+  "reward": "1000 gold pieces and royal favor"
+}
+```
+
+---
+
+## Equipment and Items
+
+### Item
+
+Generic item model for equipment and inventory.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Item name
+- `description` (str | None): Item description
+- `quantity` (int): Item quantity (default: 1)
+- `weight` (float | None): Item weight
+- `value` (str | None): Item value (e.g., "50 gp")
+- `item_type` (str): Item type ("weapon", "armor", "consumable", "misc")
+- `properties` (dict[str, Any]): Additional item properties
+
+**Example:**
+```json
+{
+  "id": "ITM12345",
+  "name": "Longsword +1",
+  "description": "A finely crafted sword with magical enhancement",
+  "quantity": 1,
+  "weight": 3.0,
+  "value": "500 gp",
+  "item_type": "weapon",
+  "properties": {
+    "damage": "1d8+1",
+    "damage_type": "slashing",
+    "magic": true
+  }
+}
+```
+
+### Spell
+
+Spell information model.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Spell name
+- `level` (int): Spell level (0-9)
+- `school` (str): School of magic
+- `casting_time` (str): Casting time
+- `range` (int): Spell range in feet (default: 5)
+- `duration` (str): Spell duration
+- `components` (list[str]): Spell components (V, S, M)
+- `description` (str): Spell description
+- `material_components` (str | None): Material component description
+- `prepared` (bool): Whether spell is prepared
+
+**Example:**
+```json
+{
+  "id": "SPL12345",
+  "name": "Fireball",
+  "level": 3,
+  "school": "Evocation",
+  "casting_time": "1 action",
+  "range": 150,
+  "duration": "Instantaneous",
+  "components": ["V", "S", "M"],
+  "description": "A bright streak flashes from your pointing finger...",
+  "material_components": "A tiny ball of bat guano and sulfur",
+  "prepared": true
+}
+```
+
+---
+
+## Combat Models
+
+### CombatParticipant
+
+Key combat statistics for initiative tracking.
+
+**Fields:**
+- `name` (str): Character or monster name
+- `initiative` (int): Initiative value for combat order
+- `hp` (int): Current hit points
+- `ac` (int): Current armor class
+- `speed` (int): Movement speed in feet per round
+- `attacks` (list[Attack]): Available attacks
+
+**Example:**
+```json
+{
+  "name": "Aragorn",
+  "initiative": 15,
+  "hp": 45,
+  "ac": 18,
+  "speed": 30,
+  "attacks": [
+    {
+      "weapon": "Longsword",
+      "attack_roll_modifier": 7,
+      "damage_roll": "1d8+4"
+    }
+  ]
+}
+```
+
+### Attack
+
+Attack details including weapon and modifiers.
+
+**Fields:**
+- `weapon` (str): Weapon or body part used to attack
+- `attack_roll_modifier` (int): Attack roll modifier
+- `damage_roll` (str): Damage dice notation (e.g., "2d4+2")
+
+### CombatEncounter
+
+Pre-planned combat encounter.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Encounter name
+- `description` (str): Encounter description
+- `enemies` (list[str]): List of enemy names
+- `difficulty` (str | None): Encounter difficulty ("easy", "medium", "hard", "deadly")
+- `experience_value` (int | None): Total XP value
+- `location` (str | None): Encounter location
+- `status` (str): Encounter status ("planned", "active", "completed")
+- `notes` (str): Additional notes
+
+---
+
+## Session Management
+
+### SessionNote
+
+Comprehensive session documentation.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `session_number` (int): Session number
+- `date` (datetime): Session date
+- `title` (str | None): Session title
+- `summary` (str): Session summary
+- `events` (list[str]): Key events that occurred
+- `characters_present` (list[str]): Characters present in session
+- `experience_gained` (int | None): Experience points gained
+- `treasure_found` (list[str]): Treasure or items found
+- `notes` (str): Additional notes
+
+**Example:**
+```json
+{
+  "id": "SES12345",
+  "session_number": 5,
+  "date": "2024-01-15T19:00:00",
+  "title": "The Dragon's Lair",
+  "summary": "The party finally confronted the ancient red dragon",
+  "events": [
+    "Entered the volcanic lair",
+    "Defeated dragon minions",
+    "Epic battle with Smagoroth"
+  ],
+  "characters_present": ["Aragorn", "Legolas", "Gimli"],
+  "experience_gained": 2500,
+  "treasure_found": ["Dragon Hoard: 10000 gp", "Ring of Fire Resistance"]
+}
+```
+
+### AdventureEvent
+
+Individual logged event for campaign history.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `campaign` (str): Campaign name where event occurred
+- `event_type` (EventType): Type of event
+- `title` (str): Event title
+- `description` (str): Event description
+- `timestamp` (datetime): When event occurred
+- `session_number` (int | None): Session number when event occurred
+- `characters_involved` (list[str]): Characters involved in event
+- `location` (str | None): Where event occurred
+- `tags` (list[str]): Event tags for categorization
+- `importance` (int): Event importance rating (1-5, where 5 is most important)
+
+### EventType
+
+Enumeration of event types for the adventure log.
+
+**Values:**
+- `COMBAT`: Combat encounters
+- `ROLEPLAY`: Social interactions and roleplay moments
+- `EXPLORATION`: Discovery and exploration events
+- `QUEST`: Quest-related events
+- `CHARACTER`: Character development moments
+- `WORLD`: World-building and lore events
+- `SESSION`: Session-level events
+
+---
+
+## Transcript Models
+
+### Transcript
+
+Complete transcript of player-game interactions for a session.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `campaign` (str): Associated campaign name
+- `session_number` (int): Session number
+- `entries` (list[TranscriptEntry]): All interaction entries
+
+### TranscriptEntry
+
+Individual player-game interaction entry.
+
+**Fields:**
+- `transcript_id` (str): Associated transcript ID
+- `timestamp` (datetime): When interaction occurred
+- `player_entry` (str): Text input by the player
+- `game_response` (str): Response from the game/DM
+
+**Example:**
+```json
+{
+  "transcript_id": "TRS12345",
+  "timestamp": "2024-01-15T19:30:00",
+  "player_entry": "I want to investigate the ancient altar",
+  "game_response": "As you approach the altar, you notice strange runes glowing faintly..."
+}
+```
+
+---
+
+## System Models
+
+### GameStats
+
+Server statistics and metadata tracking.
+
+**Core Counters:**
+- `ctime` (datetime): Server creation time
+- `last_tool_call` (datetime | None): Last tool invocation
+- `tool_calls` (int): Total tool calls
+- `errors` (int): Total errors
+
+**Campaign Tracking:**
+- `campaigns_created`, `campaigns_loaded`, `campaign_updates`, `campaign_deletions`
+
+**Entity Tracking:**
+- Characters: `characters_created`, `character_updates`, `character_deletions`
+- NPCs: `npcs_created`, `npc_updates`, `npc_deletions`
+- Locations: `locations_created`, `location_updates`, `location_deletions`
+- Quests: `quests_created`, `quest_updates`, `quest_deletions`
+- Encounters: `encounters_created`, `encounters_completed`, `encounter_updates`, `encounter_deletions`
+- Sessions: `sessions_created`, `session_updates`, `session_deletions`
+
+**Item and Spell Tracking:**
+- Items: `items_given`, `items_taken`, `item_updates`, `item_creations`, `item_deletions`
+- Spells: `spells_created`, `spell_updates`, `spell_deletions`, `spells_cast`
+
+**Game Mechanics:**
+- `die_rolls`, `roll_successes`, `roll_failures`
+- `damage_dealt`, `damage_taken`
+- `death_saves_success`, `death_saves_failure`
+- `ingame_days`
+
+**Methods:**
+- `inc(field: str, inc: int = 1)`: Increment a counter field
+- `_save_stats()`: Save statistics (TODO: implementation needed)
+- `_load_stats(stats: dict)`: Load statistics (TODO: implementation needed)
+
+---
+
+## Field Validation
+
+All models use Pydantic validation with the following common patterns:
+
+### ID Fields
+- 8-character random strings generated using `shortuuid`
+- Example: `"ABC12345"`
+
+### Numeric Constraints
+- Ability scores: 1-30 range
+- Character levels: 1-20 range
+- Spell levels: 0-9 range
+- Death saves: 0-3 range
+- Event importance: 1-5 range
+
+### Timestamps
+- Automatic generation using `datetime.now()` for creation
+- Manual updates for modification tracking
+
+### Default Factories
+- Empty lists and dictionaries use `Field(default_factory=list)` or `Field(default_factory=dict)`
+- Complex defaults use lambda functions for proper initialization
+
+This comprehensive data model structure ensures type safety, validation, and consistent data handling throughout the Gamemaster MCP Server.
