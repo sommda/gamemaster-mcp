@@ -1071,6 +1071,24 @@ def get_current_transcript() -> Transcript:
     return storage.get_transcript(None, None)
 
 
+# Game state resources
+@mcp.resource("resource://current_campaign/game_state")
+def get_current_campaign_game_state():
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        raise FileNotFoundError("No current campaign")
+    return current_campaign.game_state
+
+
+@mcp.resource("resource://campaigns/{campaign_name}/game_state")
+def get_campaign_game_state(campaign_name: str):
+    try:
+        campaign = storage.get_campaign(campaign_name)
+        return campaign.game_state
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Campaign '{campaign_name}' not found")
+
+
 logger.debug("✅ All tools successfully registered. Gamemaster-MCP server running! 🎲")
 
 

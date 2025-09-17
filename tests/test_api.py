@@ -45,6 +45,8 @@ from gamemaster_mcp.main import (
     record_interaction,
     get_transcript,
     get_current_transcript,
+    get_current_campaign_game_state,
+    get_campaign_game_state,
 )
 
 
@@ -659,3 +661,62 @@ class TestAPI:
         else:
             # If transcript doesn't exist, that's also a valid test outcome
             assert transcript is None
+
+    # Game State Resource Tests
+    async def test_get_current_campaign_game_state_resource(self, storage_with_campaign):
+        """Test getting current campaign game state as resource."""
+        override_storage(storage_with_campaign)
+
+        # First update the game state with some data
+        await update_game_state.run({
+            "current_location": "Rivendell",
+            "party_level": 5,
+            "in_combat": False,
+            "notes": "Party is resting at Rivendell"
+        })
+
+        game_state_json = await get_current_campaign_game_state.read()
+        game_state = json.loads(game_state_json)
+        assert game_state["current_location"] == "Rivendell"
+        assert game_state["party_level"] == 5
+        assert game_state["in_combat"] == False
+        assert game_state["notes"] == "Party is resting at Rivendell"
+        assert game_state["campaign_name"] == storage_with_campaign.get_current_campaign().name
+
+    async def test_get_current_campaign_game_state_resource_no_campaign(self, temp_storage):
+        """Test getting current campaign game state when no campaign is active."""
+        override_storage(temp_storage)
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            await get_current_campaign_game_state.read()
+        assert "No current campaign" in str(exc_info.value)
+
+    async def test_get_campaign_game_state_resource(self, storage_with_campaign):
+        """Test getting specific campaign game state as resource."""
+        override_storage(storage_with_campaign)
+        campaign_name = storage_with_campaign.get_current_campaign().name
+
+        # First update the game state with some data
+        await update_game_state.run({
+            "current_location": "Moria",
+            "party_level": 3,
+            "in_combat": True,
+            "current_session": 5,
+            "party_funds": "200 gold pieces"
+        })
+
+        game_state = await get_campaign_game_state.read({"campaign_name": campaign_name})
+        assert game_state.current_location == "Moria"
+        assert game_state.party_level == 3
+        assert game_state.in_combat == True
+        assert game_state.current_session == 5
+        assert game_state.party_funds == "200 gold pieces"
+        assert game_state.campaign_name == campaign_name
+
+    async def test_get_campaign_game_state_resource_not_found(self, storage_with_campaign):
+        """Test getting game state for non-existent campaign raises error."""
+        override_storage(storage_with_campaign)
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            await get_campaign_game_state.read({"campaign_name": "NonExistentCampaign"})
+        assert "Campaign 'NonExistentCampaign' not found" in str(exc_info.value)

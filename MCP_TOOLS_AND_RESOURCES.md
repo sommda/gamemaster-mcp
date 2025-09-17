@@ -456,6 +456,21 @@ Returns transcript for the current campaign and latest session.
 
 **Returns:** Current [Transcript](DATA_MODELS.md#transcript) object
 
+### `resource://current_campaign/game_state`
+Returns the game state for the currently active campaign.
+
+**Parameters:** None
+
+**Returns:** [GameState](DATA_MODELS.md#gamestate) object containing current party location, session, combat status, and other game variables
+
+### `resource://campaigns/{campaign_name}/game_state`
+Returns the game state for a specific campaign.
+
+**Parameters:**
+- `campaign_name` (str): Name of the campaign
+
+**Returns:** [GameState](DATA_MODELS.md#gamestate) object containing current party location, session, combat status, and other game variables
+
 ## Data Models
 
 The server uses comprehensive Pydantic models for data validation:
