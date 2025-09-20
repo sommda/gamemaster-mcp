@@ -18,8 +18,9 @@ This document provides comprehensive documentation for all MCP tools and resourc
    - [Transcript Management](#transcript-management)
    - [Utility Tools](#utility-tools)
 3. [MCP Resources](#mcp-resources)
-4. [Data Models](#data-models)
-5. [Complete Data Model Reference](DATA_MODELS.md)
+4. [MCP Prompts](#mcp-prompts)
+5. [Data Models](#data-models)
+6. [Complete Data Model Reference](DATA_MODELS.md)
 
 ## Overview
 
@@ -470,6 +471,35 @@ Returns the game state for a specific campaign.
 - `campaign_name` (str): Name of the campaign
 
 **Returns:** [GameState](DATA_MODELS.md#gamestate) object containing current party location, session, combat status, and other game variables
+
+## MCP Prompts
+
+The server provides intelligent prompts that adapt to the current game state and context.
+
+### `current_prompt`
+
+Generates the most appropriate system prompt for the current game state, providing comprehensive guidance for Dungeon Masters.
+
+**Parameters:** None
+
+**Returns:** Dynamic system prompt tailored for D&D campaign management
+
+**Key Features:**
+- **Campaign-Centric Guidance**: Emphasizes working within the active campaign context
+- **Structured Data Management**: Encourages detailed entity creation and updates
+- **Proactive Tool Chaining**: Suggests combining multiple tools for complex requests
+- **Dynamic State Management**: Guides real-time updates during gameplay
+- **Narrative Integration**: Balances data management with storytelling
+- **Event Logging**: Promotes comprehensive adventure history tracking
+- **Player Character Management**: Provides guidance for single or multi-character control
+
+**Content Sections:**
+1. **Core Principles**: Fundamental guidelines for campaign management
+2. **In-Play Campaign Guidance**: Dynamic gameplay and narrative support
+3. **Player Character Handling**: Instructions for character control scenarios
+4. **Tool Integration**: Specific recommendations for tool usage patterns
+
+This prompt adapts the MCP server's behavior to provide contextual assistance based on the current campaign state, active characters, and ongoing story elements.
 
 ## Data Models
 

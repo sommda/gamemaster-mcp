@@ -47,6 +47,7 @@ from gamemaster_mcp.main import (
     get_current_transcript,
     get_current_campaign_game_state,
     get_campaign_game_state,
+    current_prompt,
 )
 
 
@@ -720,3 +721,38 @@ class TestAPI:
         with pytest.raises(FileNotFoundError) as exc_info:
             await get_campaign_game_state.read({"campaign_name": "NonExistentCampaign"})
         assert "Campaign 'NonExistentCampaign' not found" in str(exc_info.value)
+
+    # MCP Prompt Tests
+    async def test_current_prompt(self, storage_with_campaign):
+        """Test the current MCP prompt function."""
+        override_storage(storage_with_campaign)
+
+        # Call the render method on the FunctionPrompt object
+        prompt_result = await current_prompt.render({})
+
+        # Extract the text content from the result
+        assert len(prompt_result) == 1
+        prompt_message = prompt_result[0]
+        prompt_text = prompt_message.content.text
+
+        # Verify the prompt contains key content
+        assert "Dungeon Master" in prompt_text
+        assert "Campaign-Centric" in prompt_text
+        assert "Structured Data" in prompt_text
+        assert "Proactive Assistance" in prompt_text
+        assert "Information Gathering" in prompt_text
+        assert "State Management" in prompt_text
+        assert "Storyteller" in prompt_text
+        assert "Dynamic World" in prompt_text
+        assert "Event Logging" in prompt_text
+        assert "Player Characters" in prompt_text
+
+        # Verify it's a substantial prompt (should be fairly long)
+        assert len(prompt_text) > 1000
+
+        # Verify it mentions key tools/concepts
+        assert "get_game_state" in prompt_text
+        assert "update_game_state" in prompt_text
+        assert "add_event" in prompt_text
+        assert "AdventureLog" in prompt_text
+        assert "SessionNotes" in prompt_text
