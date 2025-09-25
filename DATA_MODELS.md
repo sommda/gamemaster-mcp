@@ -14,6 +14,7 @@ This document provides comprehensive documentation for all data models used in t
    - [Race](#race)
 3. [World Building Models](#world-building-models)
    - [NPC](#npc)
+   - [Monster](#monster)
    - [Location](#location)
    - [Quest](#quest)
 4. [Equipment and Items](#equipment-and-items)
@@ -92,6 +93,7 @@ Tracks the current state of the campaign session.
 - `initiative_order` (list[CombatParticipant]): Combat initiative order
 - `in_combat` (bool): Whether party is currently in combat
 - `current_turn` (str | None): Whose turn it is in combat
+- `monsters` (list[Monster]): Monsters the party is currently facing or aware of
 - `notes` (str): Current situation notes
 - `updated_at` (datetime): Last update timestamp
 
@@ -105,6 +107,14 @@ Tracks the current state of the campaign session.
   "party_funds": "2500 gp",
   "in_combat": true,
   "current_turn": "Aragorn",
+  "monsters": [
+    {
+      "name": "Ancient Red Dragon",
+      "monster_type": "Dragon",
+      "hit_points_current": 350,
+      "hit_points_max": 546
+    }
+  ],
   "notes": "Party is low on spell slots"
 }
 ```
@@ -262,6 +272,97 @@ Non-player character model.
   }
 }
 ```
+
+### Monster
+
+Monster instance for combat encounters and active threats.
+
+**Basic Information:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Instance name for this specific monster
+- `monster_type` (str): The type/species of monster (e.g., "Goblin", "Dragon")
+- `size` (str): Monster size ("Tiny", "Small", "Medium", "Large", "Huge", "Gargantuan")
+- `creature_type` (str): D&D creature type (default: "humanoid")
+- `alignment` (str): Monster alignment (default: "neutral")
+- `description` (str | None): Monster appearance and behavior
+- `location` (str | None): Where this monster instance is located
+- `status` (str): Current status ("alive", "dead", "unconscious", etc.)
+
+**Core Stats:**
+- `armor_class` (int): Armor class (default: 10)
+- `hit_points_max` (int): Maximum hit points (≥1)
+- `hit_points_current` (int): Current hit points (≥0)
+- `hit_dice` (str): Hit dice notation (default: "1d8")
+- `speed` (int): Movement speed in feet per round (default: 30)
+
+**Ability Scores:**
+- `abilities` (dict[str, AbilityScore]): Six D&D ability scores with automatic modifiers
+  - Keys: "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"
+  - All default to AbilityScore(score=10) for +0 modifier
+
+**Combat Systems:**
+- `attacks` (list[Attack]): Available attacks with modifiers and damage
+- `damage_resistances` (list[str]): Damage types monster resists
+- `damage_immunities` (list[str]): Damage types monster is immune to
+- `condition_immunities` (list[str]): Conditions monster is immune to
+
+**Skills & Senses:**
+- `saving_throws` (dict[str, int]): Saving throw bonuses by ability
+- `skills` (dict[str, int]): Skill bonuses by skill name
+- `senses` (list[str]): Special senses (e.g., "darkvision 60 ft")
+- `languages` (list[str]): Known languages
+
+**Special Abilities:**
+- `special_abilities` (list[str]): Special abilities and traits
+- `legendary_actions` (list[str]): Available legendary actions
+- `legendary_actions_per_turn` (int): Number of legendary actions per turn (default: 0)
+
+**Challenge and Experience:**
+- `challenge_rating` (str): Challenge rating (e.g., "1/8", "2", "15")
+- `experience_value` (int): Experience points awarded for defeating this monster
+- `proficiency_bonus` (int): Proficiency bonus based on CR (default: 2)
+
+**Metadata:**
+- `notes` (str): Additional notes about this monster instance
+- `created_at` (datetime): Creation timestamp
+
+**Example:**
+```json
+{
+  "id": "MON12345",
+  "name": "Goblin Scout",
+  "monster_type": "Goblin",
+  "size": "Small",
+  "creature_type": "humanoid",
+  "alignment": "neutral evil",
+  "armor_class": 14,
+  "hit_points_max": 8,
+  "hit_points_current": 5,
+  "speed": 30,
+  "abilities": {
+    "strength": {"score": 8, "mod": -1},
+    "dexterity": {"score": 14, "mod": 2},
+    "constitution": {"score": 10, "mod": 0}
+  },
+  "attacks": [
+    {
+      "weapon": "Scimitar",
+      "attack_roll_modifier": 4,
+      "damage_roll": "1d6+2"
+    }
+  ],
+  "skills": {"stealth": 6},
+  "senses": ["darkvision 60 ft"],
+  "languages": ["Common", "Goblin"],
+  "special_abilities": ["Nimble Escape"],
+  "challenge_rating": "1/4",
+  "experience_value": 50,
+  "location": "Forest Clearing",
+  "status": "injured"
+}
+```
+
+**Note:** Monsters are stored in the `GameState.monsters` list and represent active threats that the party is currently facing or aware of, unlike NPCs which are stored at the campaign level and represent persistent world characters.
 
 ### Location
 

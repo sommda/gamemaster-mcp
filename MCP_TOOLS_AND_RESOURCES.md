@@ -9,6 +9,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
    - [Campaign Management](#campaign-management)
    - [Character Management](#character-management)
    - [NPC Management](#npc-management)
+   - [Monster Management](#monster-management)
    - [Location Management](#location-management)
    - [Quest Management](#quest-management)
    - [Game State Management](#game-state-management)
@@ -24,7 +25,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
 
 ## Overview
 
-The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 25+ tools for managing all aspects of D&D campaigns, from character creation to adventure logging.
+The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 28+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to adventure logging.
 
 **Core Architecture:**
 - **Campaign-centric design**: All data is organized within [Campaign](DATA_MODELS.md#campaign) objects
@@ -192,6 +193,106 @@ Lists all NPCs in the current campaign.
 **Parameters:** None
 
 **Returns:** List of NPCs with their locations
+
+### Monster Management
+
+#### `create_monster`
+Creates a new monster instance and adds it to the current game state.
+
+**Parameters:**
+- `name` (str, required): Instance name for this specific monster
+- `monster_type` (str, required): The type/species of monster (e.g., "Goblin", "Dragon")
+- `hit_points_max` (int, required): Maximum hit points (≥1)
+- `hit_points_current` (int, optional): Current hit points (defaults to max)
+- `armor_class` (int, optional): Armor class (default: 10, ≥1)
+- `size` (str, optional): Monster size (default: "Medium")
+- `creature_type` (str, optional): Creature type (default: "humanoid")
+- `alignment` (str, optional): Monster alignment (default: "neutral")
+- `speed` (int, optional): Speed in feet per round (default: 30)
+- `challenge_rating` (str, optional): Challenge rating (default: "1/8", e.g., "1/4", "2", "15")
+- `experience_value` (int, optional): Experience points awarded (default: 25, ≥0)
+- `description` (str, optional): Monster description
+- `location` (str, optional): Where this monster is located
+- `strength` (int, optional): Strength score (1-30, default: 10)
+- `dexterity` (int, optional): Dexterity score (1-30, default: 10)
+- `constitution` (int, optional): Constitution score (1-30, default: 10)
+- `intelligence` (int, optional): Intelligence score (1-30, default: 10)
+- `wisdom` (int, optional): Wisdom score (1-30, default: 10)
+- `charisma` (int, optional): Charisma score (1-30, default: 10)
+
+**Returns:** Success message with monster name, type, and HP
+
+**Example:**
+```
+create_monster(
+    name="Goblin Scout",
+    monster_type="Goblin",
+    hit_points_max=8,
+    armor_class=14,
+    size="Small",
+    creature_type="humanoid",
+    alignment="neutral evil",
+    strength=8,
+    dexterity=14,
+    challenge_rating="1/4",
+    experience_value=50,
+    description="A sneaky goblin scout with keen eyes"
+)
+```
+
+#### `get_monster`
+Gets detailed monster information including full stat block.
+
+**Parameters:**
+- `name` (str, required): Monster name
+
+**Returns:** Formatted monster information including:
+- Basic info (name, type, size, alignment, AC, HP, speed, status)
+- Challenge rating and XP value
+- Complete ability scores with modifiers
+- Attacks (if any) with to-hit bonuses and damage
+- Special abilities, resistances, and immunities
+- Skills, senses, and languages
+- Location and description
+- Additional notes
+
+**Example Output:**
+```
+**Goblin Scout** (Goblin) - `abc12345`
+**Size/Type:** Small humanoid
+**Alignment:** neutral evil
+**AC:** 14 **HP:** 5/8
+**Speed:** 30 ft **Status:** injured
+**Challenge Rating:** 1/4 (50 XP)
+
+**Ability Scores:**
+STR 8 (-1)  DEX 14 (+2)  CON 10 (+0)
+INT 10 (+0)  WIS 8 (-1)  CHA 8 (-1)
+
+**Attacks:**
+  • Scimitar: +4 to hit, 1d6+2 damage
+
+**Special Abilities:** Nimble Escape
+**Location:** Forest Clearing
+**Description:** A sneaky goblin scout with keen eyes.
+```
+
+#### `list_monsters`
+Lists all monsters currently in the game state.
+
+**Parameters:** None
+
+**Returns:** List of active monsters with their status, HP, and location
+
+**Example Output:**
+```
+**Active Monsters:**
+• Goblin Scout (Goblin) [injured] (5/8 HP) at Forest Clearing
+• Orc Warrior (Orc) (15/15 HP) at Cave Entrance
+• Young Dragon (Dragon) (178/178 HP)
+```
+
+**Note:** Unlike NPCs which are stored at the campaign level, monsters are stored in the `GameState.monsters` list and represent active threats that the party is currently facing or aware of. When monsters are no longer relevant (defeated, fled, etc.), they can be removed from the game state.
 
 ### Location Management
 
