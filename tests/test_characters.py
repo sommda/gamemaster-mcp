@@ -3,7 +3,8 @@ Tests for character management in DnDStorage.
 """
 
 import pytest
-from gamemaster_mcp.models import Character, CharacterClass, Race, AbilityScore
+
+from gamemaster_mcp.models import AbilityScore, Character, CharacterClass, Race
 
 
 @pytest.fixture

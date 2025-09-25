@@ -3,6 +3,7 @@ Tests for location management in DnDStorage.
 """
 
 import pytest
+
 from gamemaster_mcp.models import Location
 
 

@@ -2,55 +2,57 @@
 Tests for outward-facing API.
 """
 
-import pytest, asyncio, json
-from gamemaster_mcp.storage import DnDStorage
-from gamemaster_mcp.main import override_storage
+import json
+
+import pytest
+
 from gamemaster_mcp.main import (
-    create_campaign,
-    get_campaign_info,
-    list_campaigns,
-    load_campaign,
-    get_campaign,
-    get_campaigns,
-    get_current_campaign,
-    create_character,
-    get_character,
-    update_character,
-    bulk_update_characters,
-    add_item_to_character,
-    list_characters,
-    get_character_resource,
-    get_campaign_characters,
-    get_current_campaign_characters,
-    create_npc,
-    get_npc,
-    list_npcs,
-    create_monster,
-    get_monster,
-    list_monsters,
-    create_location,
-    get_location,
-    list_locations,
-    create_quest,
-    update_quest,
-    list_quests,
-    update_game_state,
-    get_game_state,
-    start_combat,
-    end_combat,
-    next_turn,
-    add_session_note,
-    get_sessions,
     add_event,
-    get_events,
-    roll_dice,
+    add_item_to_character,
+    add_session_note,
+    bulk_update_characters,
     calculate_experience,
-    record_interaction,
-    get_transcript,
-    get_current_transcript,
-    get_current_campaign_game_state,
-    get_campaign_game_state,
+    create_campaign,
+    create_character,
+    create_location,
+    create_monster,
+    create_npc,
+    create_quest,
     current_prompt,
+    end_combat,
+    get_campaign,
+    get_campaign_characters,
+    get_campaign_game_state,
+    get_campaign_info,
+    get_campaigns,
+    get_character,
+    get_character_resource,
+    get_current_campaign,
+    get_current_campaign_characters,
+    get_current_campaign_game_state,
+    get_current_transcript,
+    get_events,
+    get_game_state,
+    get_location,
+    get_monster,
+    get_npc,
+    get_sessions,
+    get_transcript,
+    list_campaigns,
+    list_characters,
+    list_locations,
+    list_monsters,
+    list_npcs,
+    list_quests,
+    load_campaign,
+    next_turn,
+    override_storage,
+    record_interaction,
+    roll_dice,
+    start_combat,
+    update_character,
+    update_game_state,
+    update_quest,
 )
 
 
@@ -406,7 +408,7 @@ class TestAPI:
                 "challenge_rating": "1/4",
                 "experience_value": 50,
                 "description": "A sneaky goblin scout with keen eyes.",
-                "location": "Forest Path"
+                "location": "Forest Path",
             }
         )
         assert len(results) == 1
@@ -417,15 +419,17 @@ class TestAPI:
         """Test getting monster information."""
         override_storage(storage_with_campaign)
         # First create a monster
-        await create_monster.run({
-            "name": "Orc Warrior",
-            "monster_type": "Orc",
-            "hit_points_max": 15,
-            "armor_class": 13,
-            "strength": 16,
-            "challenge_rating": "1/2",
-            "experience_value": 100
-        })
+        await create_monster.run(
+            {
+                "name": "Orc Warrior",
+                "monster_type": "Orc",
+                "hit_points_max": 15,
+                "armor_class": 13,
+                "strength": 16,
+                "challenge_rating": "1/2",
+                "experience_value": 100,
+            }
+        )
 
         results = await get_monster.run({"name": "Orc Warrior"})
         assert len(results) == 1
@@ -438,18 +442,22 @@ class TestAPI:
         """Test listing all monsters in game state."""
         override_storage(storage_with_campaign)
         # First create a few monsters
-        await create_monster.run({
-            "name": "Goblin 1",
-            "monster_type": "Goblin",
-            "hit_points_max": 7,
-            "location": "Cave Entrance"
-        })
-        await create_monster.run({
-            "name": "Goblin 2",
-            "monster_type": "Goblin",
-            "hit_points_max": 7,
-            "location": "Cave Entrance"
-        })
+        await create_monster.run(
+            {
+                "name": "Goblin 1",
+                "monster_type": "Goblin",
+                "hit_points_max": 7,
+                "location": "Cave Entrance",
+            }
+        )
+        await create_monster.run(
+            {
+                "name": "Goblin 2",
+                "monster_type": "Goblin",
+                "hit_points_max": 7,
+                "location": "Cave Entrance",
+            }
+        )
 
         results = await list_monsters.run({})
         assert len(results) == 1
@@ -460,11 +468,9 @@ class TestAPI:
     async def test_create_monster_with_minimal_params(self, storage_with_campaign):
         """Test creating monster with only required parameters."""
         override_storage(storage_with_campaign)
-        results = await create_monster.run({
-            "name": "Basic Skeleton",
-            "monster_type": "Undead",
-            "hit_points_max": 13
-        })
+        results = await create_monster.run(
+            {"name": "Basic Skeleton", "monster_type": "Undead", "hit_points_max": 13}
+        )
         assert len(results) == 1
         assert "Basic Skeleton" in results[0].text
         assert "13/13 HP" in results[0].text
@@ -486,24 +492,26 @@ class TestAPI:
     async def test_create_monster_with_advanced_stats(self, storage_with_campaign):
         """Test creating a monster with advanced D&D 5E stats."""
         override_storage(storage_with_campaign)
-        results = await create_monster.run({
-            "name": "Young Dragon",
-            "monster_type": "Dragon",
-            "hit_points_max": 178,
-            "armor_class": 18,
-            "size": "Large",
-            "creature_type": "dragon",
-            "alignment": "chaotic evil",
-            "speed": 40,
-            "challenge_rating": "10",
-            "experience_value": 5900,
-            "strength": 23,
-            "dexterity": 10,
-            "constitution": 21,
-            "intelligence": 14,
-            "wisdom": 11,
-            "charisma": 19
-        })
+        results = await create_monster.run(
+            {
+                "name": "Young Dragon",
+                "monster_type": "Dragon",
+                "hit_points_max": 178,
+                "armor_class": 18,
+                "size": "Large",
+                "creature_type": "dragon",
+                "alignment": "chaotic evil",
+                "speed": 40,
+                "challenge_rating": "10",
+                "experience_value": 5900,
+                "strength": 23,
+                "dexterity": 10,
+                "constitution": 21,
+                "intelligence": 14,
+                "wisdom": 11,
+                "charisma": 19,
+            }
+        )
         assert len(results) == 1
         assert "Young Dragon" in results[0].text
         assert "178/178 HP" in results[0].text
@@ -674,7 +682,6 @@ class TestAPI:
     async def test_add_event(self, storage_with_campaign):
         """Test adding an adventure event."""
         override_storage(storage_with_campaign)
-        campaign_name = storage_with_campaign.get_current_campaign().name
         results = await add_event.run(
             {
                 "event_type": "combat",
@@ -805,7 +812,7 @@ class TestAPI:
         game_state = json.loads(game_state_json)
         assert game_state["current_location"] == "Rivendell"
         assert game_state["party_level"] == 5
-        assert game_state["in_combat"] == False
+        assert not game_state["in_combat"]
         assert game_state["notes"] == "Party is resting at Rivendell"
         assert game_state["campaign_name"] == storage_with_campaign.get_current_campaign().name
 
@@ -836,7 +843,7 @@ class TestAPI:
         game_state = await get_campaign_game_state.read({"campaign_name": campaign_name})
         assert game_state.current_location == "Moria"
         assert game_state.party_level == 3
-        assert game_state.in_combat == True
+        assert game_state.in_combat
         assert game_state.current_session == 5
         assert game_state.party_funds == "200 gold pieces"
         assert game_state.campaign_name == campaign_name

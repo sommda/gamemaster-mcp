@@ -3,9 +3,10 @@ Test file for the D&D MCP Server (FastMCP 2.8.0+ compliant).
 """
 
 import pytest
+
 from gamemaster_mcp.main import mcp
+from gamemaster_mcp.models import AbilityScore, Character, CharacterClass, Race
 from gamemaster_mcp.storage import DnDStorage
-from gamemaster_mcp.models import Character, CharacterClass, Race, AbilityScore
 
 
 def test_mcp_server_initialization():

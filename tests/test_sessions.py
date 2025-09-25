@@ -2,8 +2,10 @@
 Tests for session management in DnDStorage.
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
+
 from gamemaster_mcp.models import SessionNote
 
 

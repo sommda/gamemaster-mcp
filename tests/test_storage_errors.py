@@ -3,14 +3,15 @@ Tests for error handling in DnDStorage operations.
 """
 
 import pytest
+
 from gamemaster_mcp.models import (
-    Character,
     NPC,
+    AbilityScore,
+    Character,
+    CharacterClass,
     Location,
     Quest,
-    CharacterClass,
     Race,
-    AbilityScore,
 )
 
 
@@ -95,8 +96,9 @@ class TestStorageErrorHandling:
 
     def test_session_operations_without_campaign_fail(self, temp_storage):
         """Test that session operations fail when no campaign is loaded."""
-        from gamemaster_mcp.models import SessionNote
         from datetime import datetime
+
+        from gamemaster_mcp.models import SessionNote
 
         sample_session = SessionNote(session_number=1, date=datetime.now(), summary="Test session")
 

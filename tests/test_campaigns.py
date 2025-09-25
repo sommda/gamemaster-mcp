@@ -3,7 +3,6 @@ Tests for campaign management in DnDStorage.
 """
 
 import pytest
-from gamemaster_mcp.storage import DnDStorage
 
 
 class TestCampaignManagement:

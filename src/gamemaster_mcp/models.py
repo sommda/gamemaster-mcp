@@ -2,13 +2,14 @@
 Data models for the D&D MCP Server.
 """
 
-from pathlib import Path
 from datetime import datetime
 from enum import Enum
-from typing import Any, Annotated
-from shortuuid import random
-from pydantic import BaseModel, Field
 from logging import Handler, LogRecord
+from pathlib import Path
+from typing import Annotated, Any
+
+from pydantic import BaseModel, Field
+from shortuuid import random
 
 from .logutils import logger
 
@@ -139,7 +140,7 @@ class GameStatHandler(Handler):
     def emit(self, record):
         try:
             self.func(record)  # Execute the function with the log record
-        except Exception as e:
+        except Exception:
             self.handleError(record)  # Handle errors gracefully
 
     def inc_stat(self, record: LogRecord):
@@ -257,12 +258,7 @@ class Character(BaseModel):
     # Equipment
     inventory: list[Item] = Field(default_factory=list)
     equipment: dict[str, Item | None] = Field(
-        default_factory=lambda: {
-            "weapon_main": None,
-            "weapon_off": None,
-            "armor": None,
-            "shield": None,
-        }
+        default_factory=lambda: dict.fromkeys(["weapon_main", "weapon_off", "armor", "shield"])
     )
 
     # Spellcasting

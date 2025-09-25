@@ -3,37 +3,38 @@ D&D MCP Server
 A comprehensive D&D campaign management server built with modern FastMCP framework.
 """
 
+import argparse
 import logging
+import os
 import random
 import re
-import os
-import argparse
 from pathlib import Path
 from typing import Annotated, Literal
+
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from pydantic import Field
 from fastmcp.prompts.prompt import Message
+from pydantic import Field
 
-from .tool_with_logging import tool_with_logging
-from .storage import DnDStorage
 from .models import (
+    NPC,
+    AbilityScore,
+    AdventureEvent,
     Campaign,
     Character,
-    NPC,
-    Monster,
-    Location,
-    Quest,
-    SessionNote,
-    AdventureEvent,
-    EventType,
-    AbilityScore,
     CharacterClass,
-    Race,
-    Item,
     CombatParticipant,
+    EventType,
+    Item,
+    Location,
+    Monster,
+    Quest,
+    Race,
+    SessionNote,
     Transcript,
 )
+from .storage import DnDStorage
+from .tool_with_logging import tool_with_logging
 
 logger = logging.getLogger("gamemaster-mcp")
 
@@ -54,12 +55,12 @@ logger.debug(f"📂 Data path: {data_path}")
 storage = DnDStorage(data_dir=data_path)
 logger.debug("✅ Storage layer initialized")
 
-mcp = FastMCP(name="D&D Campaign Manager")
+mcp: FastMCP = FastMCP(name="D&D Campaign Manager")
 logger.debug("✅ Server initialized, registering tools")
 
 
 # Storage override for tests
-def override_storage(ovr_storage: DnDStorage):
+def override_storage(ovr_storage: DnDStorage) -> None:
     global storage
     storage = ovr_storage
 
@@ -405,7 +406,6 @@ def bulk_update_characters(
             char_updates["temporary_hit_points"] = new_temp_hp
             char_log.append(f"Temp HP -> {new_temp_hp}")
 
-        abilities_updated = False
         ability_changes = {
             "strength": strength_change,
             "dexterity": dexterity_change,
@@ -414,19 +414,21 @@ def bulk_update_characters(
             "wisdom": wisdom_change,
             "charisma": charisma_change,
         }
+        abilities_modified = False
         for ability, change in ability_changes.items():
             if change is not None:
                 new_score = character.abilities[ability].score + change
                 new_score = max(1, min(new_score, 30))  # Clamp score
                 character.abilities[ability].score = new_score
-                abilities_updated = True
                 char_log.append(f"{ability.capitalize()} -> {new_score}")
+                abilities_modified = True
 
-        if abilities_updated:
-            char_updates["abilities"] = character.abilities
-
-        if char_updates:
-            storage.update_character(str(character.id), **char_updates)
+        if char_updates or abilities_modified:
+            if char_updates:
+                storage.update_character(str(character.id), **char_updates)
+            elif abilities_modified:
+                # Abilities are modified in place, just need to trigger a save
+                storage._save_campaign()
             updates_log.append(" ".join(char_log))
 
     response_parts = []
@@ -884,7 +886,7 @@ def update_game_state(
     notes: Annotated[str | None, Field(description="Current situation notes")] = None,
 ) -> str:
     """Update the current game state."""
-    kwargs = {}
+    kwargs: dict[str, str | int | bool] = {}
     if current_location is not None:
         kwargs["current_location"] = current_location
     if current_session is not None:

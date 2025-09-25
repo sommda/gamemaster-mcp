@@ -2,9 +2,6 @@
 Tests for DnDStorage initialization and basic functionality.
 """
 
-import pytest
-from gamemaster_mcp.storage import DnDStorage
-
 
 class TestStorageInitialization:
     """Test storage initialization and basic functionality."""

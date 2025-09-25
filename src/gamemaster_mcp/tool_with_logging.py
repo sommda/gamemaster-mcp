@@ -9,12 +9,12 @@ logging.basicConfig(level=logging.INFO)
 
 
 def tool_with_logging(
-    mcp_app,
+    mcp_app: Any,
     *,
     exclude: set[str] | None = None,  # arg names to redact entirely
     redact: dict[str, Callable[[Any], Any]] | None = None,  # per-arg redactors
     max_str_len: int = 500,  # truncate long strings
-):
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator factory. Use in place of @mcp.tool:
         @tool_with_logging(mcp)
@@ -40,7 +40,9 @@ def tool_with_logging(
             return s[:max_str_len] + f"... <{len(s) - max_str_len} more chars>"
         return s
 
-    def make_safe_args(fn: Callable, args, kwargs):
+    def make_safe_args(
+        fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         sig = inspect.signature(fn)
         bound = sig.bind_partial(*args, **kwargs)
         bound.apply_defaults()
@@ -57,14 +59,14 @@ def tool_with_logging(
                 safe[k] = shorten(v)
         return safe
 
-    def decorator(fn: Callable):
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         is_coro = inspect.iscoroutinefunction(fn)
         tool_name = fn.__name__
 
         if is_coro:
 
             @wraps(fn)
-            async def wrapper(*args, **kwargs):
+            async def wrapper(*args: Any, **kwargs: Any) -> Any:
                 safe = make_safe_args(fn, args, kwargs)
                 try:
                     payload = json.dumps(safe, default=str)
@@ -75,7 +77,7 @@ def tool_with_logging(
         else:
 
             @wraps(fn)
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
                 safe = make_safe_args(fn, args, kwargs)
                 try:
                     payload = json.dumps(safe, default=str)

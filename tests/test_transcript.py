@@ -2,9 +2,6 @@
 Tests for adventure event management in DnDStorage.
 """
 
-import pytest
-from gamemaster_mcp.models import Transcript
-
 
 class TestTranscriptManagement:
     """Test transcript operations."""

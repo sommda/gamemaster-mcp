@@ -3,22 +3,22 @@ Storage layer for the D&D MCP Server.
 Handles persistence of campaign data to JSON files.
 """
 
-import logging
-import shortuuid
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
+import shortuuid
+
 from .models import (
+    NPC,
+    AdventureEvent,
     Campaign,
     Character,
-    NPC,
+    GameState,
     Location,
     Quest,
-    CombatEncounter,
     SessionNote,
-    GameState,
-    AdventureEvent,
     Transcript,
     TranscriptEntry,
 )
@@ -81,7 +81,7 @@ class DnDStorage:
     def _get_transcript_file(self, campaign_name: str, session_number: int) -> Path:
         return self.data_dir / "transcripts" / campaign_name / f"session_{session_number}.json"
 
-    def _save_campaign(self):
+    def _save_campaign(self) -> None:
         """Save the current campaign to disk."""
         if not self._current_campaign:
             logger.debug("❌ No current campaign to save.")
@@ -122,7 +122,7 @@ class DnDStorage:
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading campaign from {latest_file}: {e}")
 
-    def _save_events(self):
+    def _save_events(self) -> None:
         """Save adventure events to disk."""
         events_file = self._get_events_file()
         logger.debug(f"💾 Saving {len(self._events)} events to {events_file}...")
@@ -132,7 +132,7 @@ class DnDStorage:
             json.dump(events_data, f, default=str)
         logger.debug("✅ Events saved successfully.")
 
-    def _load_events(self):
+    def _load_events(self) -> None:
         """Load adventure events from disk."""
         logger.debug("📂 Attempting to load adventure events...")
         events_file = self._get_events_file()
@@ -148,7 +148,7 @@ class DnDStorage:
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading events: {e}")
 
-    def _load_transcript(self, campaign_name: str, session_number: int) -> Transcript:
+    def _load_transcript(self, campaign_name: str, session_number: int) -> Transcript | None:
         transcript_file = self._get_transcript_file(campaign_name, session_number)
         if not transcript_file.exists():
             return None
@@ -162,8 +162,9 @@ class DnDStorage:
                 return transcript
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading transcript: {e}")
+            return None
 
-    def _save_transcript(self, transcript: Transcript):
+    def _save_transcript(self, transcript: Transcript) -> None:
         transcript_dir = self._get_transcript_dir(transcript.campaign)
         transcript_dir.mkdir(exist_ok=True)
         transcript_file = self._get_transcript_file(transcript.campaign, transcript.session_number)

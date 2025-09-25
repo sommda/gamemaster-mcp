@@ -3,7 +3,8 @@ Tests for game state management in DnDStorage.
 """
 
 import pytest
-from gamemaster_mcp.models import GameState, CombatParticipant, Attack
+
+from gamemaster_mcp.models import CombatParticipant
 
 
 class TestGameStateManagement:

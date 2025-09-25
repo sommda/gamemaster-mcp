@@ -3,6 +3,7 @@ Tests for NPC management in DnDStorage.
 """
 
 import pytest
+
 from gamemaster_mcp.models import NPC
 
 

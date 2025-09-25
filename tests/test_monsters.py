@@ -3,7 +3,8 @@ Tests for Monster management in game state.
 """
 
 import pytest
-from gamemaster_mcp.models import Monster, AbilityScore, Attack
+
+from gamemaster_mcp.models import AbilityScore, Attack, Monster
 
 
 @pytest.fixture
@@ -32,21 +33,13 @@ def sample_monster():
             "charisma": AbilityScore(score=8),
         },
         attacks=[
-            Attack(
-                weapon="Scimitar",
-                attack_roll_modifier=4,
-                damage_roll="1d6+2"
-            ),
-            Attack(
-                weapon="Shortbow",
-                attack_roll_modifier=4,
-                damage_roll="1d6+2"
-            )
+            Attack(weapon="Scimitar", attack_roll_modifier=4, damage_roll="1d6+2"),
+            Attack(weapon="Shortbow", attack_roll_modifier=4, damage_roll="1d6+2"),
         ],
         skills={"stealth": 6},
         senses=["darkvision 60 ft"],
         languages=["Common", "Goblin"],
-        special_abilities=["Nimble Escape"]
+        special_abilities=["Nimble Escape"],
     )
 
 
@@ -77,7 +70,7 @@ def sample_dragon():
         senses=["blindsight 30 ft", "darkvision 120 ft"],
         languages=["Common", "Draconic"],
         legendary_actions=["Detect", "Tail Attack", "Wing Attack"],
-        legendary_actions_per_turn=3
+        legendary_actions_per_turn=3,
     )
 
 
@@ -97,7 +90,7 @@ class TestMonsterModel:
     def test_monster_ability_modifiers(self, sample_monster):
         """Test that ability score modifiers are calculated correctly."""
         assert sample_monster.abilities["strength"].mod == -1  # 8 -> -1
-        assert sample_monster.abilities["dexterity"].mod == 2   # 14 -> +2
+        assert sample_monster.abilities["dexterity"].mod == 2  # 14 -> +2
         assert sample_monster.abilities["constitution"].mod == 0  # 10 -> 0
 
     def test_monster_with_attacks(self, sample_monster):
@@ -117,10 +110,7 @@ class TestMonsterModel:
     def test_monster_default_values(self):
         """Test monster creation with minimal parameters."""
         basic_monster = Monster(
-            name="Basic Goblin",
-            monster_type="Goblin",
-            hit_points_max=5,
-            hit_points_current=5
+            name="Basic Goblin", monster_type="Goblin", hit_points_max=5, hit_points_current=5
         )
 
         # Check defaults
@@ -167,7 +157,9 @@ class TestMonsterGameStateIntegration:
         assert len(monsters) == 1
         assert monsters[0].name == sample_monster.name
 
-    def test_multiple_monsters_in_game_state(self, storage_with_campaign, sample_monster, sample_dragon):
+    def test_multiple_monsters_in_game_state(
+        self, storage_with_campaign, sample_monster, sample_dragon
+    ):
         """Test managing multiple monsters in game state."""
         campaign = storage_with_campaign.get_current_campaign()
         campaign.game_state.monsters.extend([sample_monster, sample_dragon])
@@ -240,7 +232,9 @@ class TestMonsterGameStateIntegration:
         from gamemaster_mcp.storage import DnDStorage
 
         # Create campaign
-        temp_storage.create_campaign("Monster Test Campaign", "Test campaign for monster persistence")
+        temp_storage.create_campaign(
+            "Monster Test Campaign", "Test campaign for monster persistence"
+        )
 
         # Add monster to game state
         campaign = temp_storage.get_current_campaign()
@@ -309,9 +303,15 @@ class TestMonsterCombatScenarios:
         campaign = storage_with_campaign.get_current_campaign()
 
         # Create multiple goblins
-        goblin1 = Monster(name="Goblin 1", monster_type="Goblin", hit_points_max=7, hit_points_current=7)
-        goblin2 = Monster(name="Goblin 2", monster_type="Goblin", hit_points_max=7, hit_points_current=7)
-        goblin3 = Monster(name="Goblin 3", monster_type="Goblin", hit_points_max=7, hit_points_current=7)
+        goblin1 = Monster(
+            name="Goblin 1", monster_type="Goblin", hit_points_max=7, hit_points_current=7
+        )
+        goblin2 = Monster(
+            name="Goblin 2", monster_type="Goblin", hit_points_max=7, hit_points_current=7
+        )
+        goblin3 = Monster(
+            name="Goblin 3", monster_type="Goblin", hit_points_max=7, hit_points_current=7
+        )
 
         campaign.game_state.monsters.extend([goblin1, goblin2, goblin3])
 
@@ -323,5 +323,5 @@ class TestMonsterCombatScenarios:
         types = [m.monster_type for m in campaign.game_state.monsters]
 
         assert len(set(names)) == 3  # Unique names
-        assert len(set(types)) == 1   # Same type
+        assert len(set(types)) == 1  # Same type
         assert types[0] == "Goblin"
