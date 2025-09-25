@@ -9,7 +9,7 @@ import re
 import os
 import argparse
 from pathlib import Path
-from typing import Annotated, Literal, Any
+from typing import Annotated, Literal
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pydantic import Field
@@ -21,6 +21,7 @@ from .models import (
     Campaign,
     Character,
     NPC,
+    Monster,
     Location,
     Quest,
     SessionNote,
@@ -563,6 +564,165 @@ def list_npcs() -> str:
     return "**NPCs:**\n" + "\n".join(npc_list)
 
 
+# Monster Management Tools
+@tool_with_logging(mcp)
+def create_monster(
+    name: Annotated[str, Field(description="Instance name for this specific monster")],
+    monster_type: Annotated[
+        str, Field(description="The type/species of monster (e.g., 'Goblin', 'Dragon')")
+    ],
+    hit_points_max: Annotated[int, Field(description="Maximum hit points", ge=1)],
+    hit_points_current: Annotated[int | None, Field(description="Current hit points")] = None,
+    armor_class: Annotated[int, Field(description="Armor class", ge=1)] = 10,
+    size: Annotated[str, Field(description="Monster size")] = "Medium",
+    creature_type: Annotated[str, Field(description="Creature type")] = "humanoid",
+    alignment: Annotated[str, Field(description="Monster alignment")] = "neutral",
+    speed: Annotated[int, Field(description="Speed in feet per round")] = 30,
+    challenge_rating: Annotated[
+        str, Field(description="Challenge rating (e.g., '1/4', '2', '15')")
+    ] = "1/8",
+    experience_value: Annotated[int, Field(description="Experience points awarded", ge=0)] = 25,
+    description: Annotated[str | None, Field(description="Monster description")] = None,
+    location: Annotated[str | None, Field(description="Where this monster is located")] = None,
+    strength: Annotated[int, Field(description="Strength score", ge=1, le=30)] = 10,
+    dexterity: Annotated[int, Field(description="Dexterity score", ge=1, le=30)] = 10,
+    constitution: Annotated[int, Field(description="Constitution score", ge=1, le=30)] = 10,
+    intelligence: Annotated[int, Field(description="Intelligence score", ge=1, le=30)] = 10,
+    wisdom: Annotated[int, Field(description="Wisdom score", ge=1, le=30)] = 10,
+    charisma: Annotated[int, Field(description="Charisma score", ge=1, le=30)] = 10,
+) -> str:
+    """Create a new monster and add it to the current game state."""
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        return "No active campaign. Please create or load a campaign first."
+
+    # Build ability scores
+    abilities = {
+        "strength": AbilityScore(score=strength),
+        "dexterity": AbilityScore(score=dexterity),
+        "constitution": AbilityScore(score=constitution),
+        "intelligence": AbilityScore(score=intelligence),
+        "wisdom": AbilityScore(score=wisdom),
+        "charisma": AbilityScore(score=charisma),
+    }
+
+    # Set current HP to max if not provided
+    if hit_points_current is None:
+        hit_points_current = hit_points_max
+
+    monster = Monster(
+        name=name,
+        monster_type=monster_type,
+        hit_points_max=hit_points_max,
+        hit_points_current=hit_points_current,
+        armor_class=armor_class,
+        size=size,
+        creature_type=creature_type,
+        alignment=alignment,
+        speed=speed,
+        challenge_rating=challenge_rating,
+        experience_value=experience_value,
+        description=description,
+        location=location,
+        abilities=abilities,
+    )
+
+    # Add monster to game state
+    current_campaign.game_state.monsters.append(monster)
+    storage._save_campaign()
+
+    return f"Created monster '{monster.name}' ({monster.monster_type}) with {monster.hit_points_current}/{monster.hit_points_max} HP"
+
+
+@tool_with_logging(mcp)
+def get_monster(name: Annotated[str, Field(description="Monster name")]) -> str:
+    """Get monster information."""
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        return "No active campaign. Please create or load a campaign first."
+
+    monster = None
+    for m in current_campaign.game_state.monsters:
+        if m.name.lower() == name.lower():
+            monster = m
+            break
+
+    if not monster:
+        return f"Monster '{name}' not found in current game state."
+
+    # Format attacks
+    attacks_info = ""
+    if monster.attacks:
+        attacks_list = []
+        for attack in monster.attacks:
+            attacks_list.append(
+                f"  • {attack.weapon}: +{attack.attack_roll_modifier} to hit, {attack.damage_roll} damage"
+            )
+        attacks_info = "\n**Attacks:**\n" + "\n".join(attacks_list)
+
+    # Format special abilities
+    abilities_info = ""
+    if monster.special_abilities:
+        abilities_info = f"\n**Special Abilities:** {', '.join(monster.special_abilities)}"
+
+    # Format resistances/immunities
+    resist_info = ""
+    if monster.damage_resistances:
+        resist_info += f"\n**Damage Resistances:** {', '.join(monster.damage_resistances)}"
+    if monster.damage_immunities:
+        resist_info += f"\n**Damage Immunities:** {', '.join(monster.damage_immunities)}"
+    if monster.condition_immunities:
+        resist_info += f"\n**Condition Immunities:** {', '.join(monster.condition_immunities)}"
+
+    monster_info = f"""**{monster.name}** ({monster.monster_type}) - `{monster.id}`
+**Size/Type:** {monster.size} {monster.creature_type}
+**Alignment:** {monster.alignment}
+**AC:** {monster.armor_class} **HP:** {monster.hit_points_current}/{monster.hit_points_max}
+**Speed:** {monster.speed} ft **Status:** {monster.status}
+**Challenge Rating:** {monster.challenge_rating} ({monster.experience_value} XP)
+
+**Ability Scores:**
+STR {monster.abilities["strength"].score} ({monster.abilities["strength"].mod:+d})
+DEX {monster.abilities["dexterity"].score} ({monster.abilities["dexterity"].mod:+d})
+CON {monster.abilities["constitution"].score} ({monster.abilities["constitution"].mod:+d})
+INT {monster.abilities["intelligence"].score} ({monster.abilities["intelligence"].mod:+d})
+WIS {monster.abilities["wisdom"].score} ({monster.abilities["wisdom"].mod:+d})
+CHA {monster.abilities["charisma"].score} ({monster.abilities["charisma"].mod:+d})
+{attacks_info}{abilities_info}{resist_info}
+
+**Location:** {monster.location or "Unknown"}
+**Description:** {monster.description or "No description available."}
+"""
+
+    if monster.notes:
+        monster_info += f"\n**Notes:** {monster.notes}"
+
+    return monster_info
+
+
+@tool_with_logging(mcp)
+def list_monsters() -> str:
+    """List all monsters in the current game state."""
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        return "No active campaign. Please create or load a campaign first."
+
+    monsters = current_campaign.game_state.monsters
+    if not monsters:
+        return "No monsters in the current game state."
+
+    monster_list = []
+    for monster in monsters:
+        status_info = f" [{monster.status}]" if monster.status != "alive" else ""
+        hp_info = f" ({monster.hit_points_current}/{monster.hit_points_max} HP)"
+        location_info = f" at {monster.location}" if monster.location else ""
+        monster_list.append(
+            f"• {monster.name} ({monster.monster_type}){status_info}{hp_info}{location_info}"
+        )
+
+    return "**Active Monsters:**\n" + "\n".join(monster_list)
+
+
 # Location Management Tools
 @tool_with_logging(mcp)
 def create_location(
@@ -1088,12 +1248,12 @@ def get_campaign_game_state(campaign_name: str):
         return campaign.game_state
     except FileNotFoundError:
         raise FileNotFoundError(f"Campaign '{campaign_name}' not found")
-    
+
 
 @mcp.prompt
 def current_prompt() -> str:
     """Generates the most appropriate prompt for the current game state."""
-    prompt = '''
+    prompt = """
 You are a Dungeon Master (DM), powered by the Gamemaster MCP server.
 Your primary role is to manage all aspects of a Dungeons & Dragons campaign using a rich set of specialized tools.
 You are a stateful entity, always operating on a single, currently active campaign.
@@ -1129,8 +1289,9 @@ Alternately the user may choose to control multiple (or all) characters at once.
 know whose turn it is.
 
 The user may only take control of player characters. You will always control NPCs and monsters.
-'''
+"""
     return Message(prompt)
+
 
 logger.debug("✅ All tools successfully registered. Gamemaster-MCP server running! 🎲")
 

@@ -365,6 +365,65 @@ class Attack(BaseModel):
     damage_roll: Annotated[str, "dice roll for damage, e.g. 2d4+2"]
 
 
+class Monster(BaseModel):
+    """Monster instance for combat encounters."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    name: str = Field(description="Instance name for this specific monster")
+    monster_type: str = Field(description="The type/species of monster (e.g., 'Goblin', 'Dragon')")
+    size: str = "Medium"  # Tiny, Small, Medium, Large, Huge, Gargantuan
+    creature_type: str = "humanoid"  # beast, fey, fiend, etc.
+    alignment: str = "neutral"
+
+    # Core Stats
+    armor_class: int = 10
+    hit_points_max: int = Field(ge=1, description="Maximum hit points")
+    hit_points_current: int = Field(ge=0, description="Current hit points")
+    hit_dice: str = "1d8"  # e.g., "2d8+2"
+    speed: int = 30  # feet per round
+
+    # Ability Scores
+    abilities: dict[str, AbilityScore] = Field(
+        default_factory=lambda: {
+            "strength": AbilityScore(score=10),
+            "dexterity": AbilityScore(score=10),
+            "constitution": AbilityScore(score=10),
+            "intelligence": AbilityScore(score=10),
+            "wisdom": AbilityScore(score=10),
+            "charisma": AbilityScore(score=10),
+        }
+    )
+
+    # Combat
+    attacks: list[Attack] = Field(default_factory=list)
+    damage_resistances: list[str] = Field(default_factory=list)
+    damage_immunities: list[str] = Field(default_factory=list)
+    condition_immunities: list[str] = Field(default_factory=list)
+
+    # Skills & Senses
+    saving_throws: dict[str, int] = Field(default_factory=dict)  # ability: modifier
+    skills: dict[str, int] = Field(default_factory=dict)  # skill: modifier
+    senses: list[str] = Field(default_factory=list)  # darkvision, blindsight, etc.
+    languages: list[str] = Field(default_factory=list)
+
+    # Special Abilities
+    special_abilities: list[str] = Field(default_factory=list)
+    legendary_actions: list[str] = Field(default_factory=list)
+    legendary_actions_per_turn: int = 0
+
+    # Challenge and Experience
+    challenge_rating: str = "1/8"  # e.g., "1/4", "2", "15"
+    experience_value: int = 25
+    proficiency_bonus: int = 2
+
+    # Metadata
+    description: str | None = None
+    notes: str = ""
+    location: str | None = None  # Where this monster instance is located
+    status: str = "alive"  # alive, dead, unconscious, etc.
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class CombatParticipant(BaseModel):
     """Key stats for a participant in combat"""
 
@@ -389,6 +448,9 @@ class GameState(BaseModel):
     initiative_order: list[CombatParticipant] = Field(default_factory=list)
     in_combat: bool = False
     current_turn: str | None = None
+    monsters: list[Monster] = Field(
+        default_factory=list, description="Monsters the party is currently facing or aware of"
+    )
     notes: str = ""
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -480,6 +542,7 @@ __all__ = [
     "Spell",
     "Character",
     "NPC",
+    "Monster",
     "Location",
     "Quest",
     "CombatEncounter",

@@ -25,6 +25,9 @@ from gamemaster_mcp.main import (
     create_npc,
     get_npc,
     list_npcs,
+    create_monster,
+    get_monster,
+    list_monsters,
     create_location,
     get_location,
     list_locations,
@@ -385,6 +388,126 @@ class TestAPI:
         assert len(results) == 1
         assert "Boromir" in results[0].text
 
+    # Monster Management Tests
+    async def test_create_monster(self, storage_with_campaign):
+        """Test creating a new monster."""
+        override_storage(storage_with_campaign)
+        results = await create_monster.run(
+            {
+                "name": "Goblin Scout",
+                "monster_type": "Goblin",
+                "hit_points_max": 8,
+                "armor_class": 14,
+                "size": "Small",
+                "creature_type": "humanoid",
+                "alignment": "neutral evil",
+                "strength": 8,
+                "dexterity": 14,
+                "challenge_rating": "1/4",
+                "experience_value": 50,
+                "description": "A sneaky goblin scout with keen eyes.",
+                "location": "Forest Path"
+            }
+        )
+        assert len(results) == 1
+        assert "Goblin Scout" in results[0].text
+        assert "8/8 HP" in results[0].text
+
+    async def test_get_monster(self, storage_with_campaign):
+        """Test getting monster information."""
+        override_storage(storage_with_campaign)
+        # First create a monster
+        await create_monster.run({
+            "name": "Orc Warrior",
+            "monster_type": "Orc",
+            "hit_points_max": 15,
+            "armor_class": 13,
+            "strength": 16,
+            "challenge_rating": "1/2",
+            "experience_value": 100
+        })
+
+        results = await get_monster.run({"name": "Orc Warrior"})
+        assert len(results) == 1
+        assert "Orc Warrior" in results[0].text
+        assert "Orc" in results[0].text
+        assert "15/15" in results[0].text  # HP display
+        assert "**AC:** 13" in results[0].text
+
+    async def test_list_monsters(self, storage_with_campaign):
+        """Test listing all monsters in game state."""
+        override_storage(storage_with_campaign)
+        # First create a few monsters
+        await create_monster.run({
+            "name": "Goblin 1",
+            "monster_type": "Goblin",
+            "hit_points_max": 7,
+            "location": "Cave Entrance"
+        })
+        await create_monster.run({
+            "name": "Goblin 2",
+            "monster_type": "Goblin",
+            "hit_points_max": 7,
+            "location": "Cave Entrance"
+        })
+
+        results = await list_monsters.run({})
+        assert len(results) == 1
+        assert "Goblin 1" in results[0].text
+        assert "Goblin 2" in results[0].text
+        assert "Cave Entrance" in results[0].text
+
+    async def test_create_monster_with_minimal_params(self, storage_with_campaign):
+        """Test creating monster with only required parameters."""
+        override_storage(storage_with_campaign)
+        results = await create_monster.run({
+            "name": "Basic Skeleton",
+            "monster_type": "Undead",
+            "hit_points_max": 13
+        })
+        assert len(results) == 1
+        assert "Basic Skeleton" in results[0].text
+        assert "13/13 HP" in results[0].text
+
+    async def test_get_nonexistent_monster(self, storage_with_campaign):
+        """Test getting a monster that doesn't exist."""
+        override_storage(storage_with_campaign)
+        results = await get_monster.run({"name": "Nonexistent Monster"})
+        assert len(results) == 1
+        assert "not found" in results[0].text
+
+    async def test_list_empty_monsters(self, storage_with_campaign):
+        """Test listing monsters when none exist."""
+        override_storage(storage_with_campaign)
+        results = await list_monsters.run({})
+        assert len(results) == 1
+        assert "No monsters" in results[0].text
+
+    async def test_create_monster_with_advanced_stats(self, storage_with_campaign):
+        """Test creating a monster with advanced D&D 5E stats."""
+        override_storage(storage_with_campaign)
+        results = await create_monster.run({
+            "name": "Young Dragon",
+            "monster_type": "Dragon",
+            "hit_points_max": 178,
+            "armor_class": 18,
+            "size": "Large",
+            "creature_type": "dragon",
+            "alignment": "chaotic evil",
+            "speed": 40,
+            "challenge_rating": "10",
+            "experience_value": 5900,
+            "strength": 23,
+            "dexterity": 10,
+            "constitution": 21,
+            "intelligence": 14,
+            "wisdom": 11,
+            "charisma": 19
+        })
+        assert len(results) == 1
+        assert "Young Dragon" in results[0].text
+        assert "178/178 HP" in results[0].text
+
     # Location Management Tests
     async def test_create_location(self, storage_with_campaign):
         """Test creating a new location."""
@@ -669,12 +792,14 @@ class TestAPI:
         override_storage(storage_with_campaign)
 
         # First update the game state with some data
-        await update_game_state.run({
-            "current_location": "Rivendell",
-            "party_level": 5,
-            "in_combat": False,
-            "notes": "Party is resting at Rivendell"
-        })
+        await update_game_state.run(
+            {
+                "current_location": "Rivendell",
+                "party_level": 5,
+                "in_combat": False,
+                "notes": "Party is resting at Rivendell",
+            }
+        )
 
         game_state_json = await get_current_campaign_game_state.read()
         game_state = json.loads(game_state_json)
@@ -698,13 +823,15 @@ class TestAPI:
         campaign_name = storage_with_campaign.get_current_campaign().name
 
         # First update the game state with some data
-        await update_game_state.run({
-            "current_location": "Moria",
-            "party_level": 3,
-            "in_combat": True,
-            "current_session": 5,
-            "party_funds": "200 gold pieces"
-        })
+        await update_game_state.run(
+            {
+                "current_location": "Moria",
+                "party_level": 3,
+                "in_combat": True,
+                "current_session": 5,
+                "party_funds": "200 gold pieces",
+            }
+        )
 
         game_state = await get_campaign_game_state.read({"campaign_name": campaign_name})
         assert game_state.current_location == "Moria"
