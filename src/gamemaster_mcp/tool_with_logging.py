@@ -14,10 +14,15 @@ def tool_with_logging(
     exclude: set[str] | None = None,  # arg names to redact entirely
     redact: dict[str, Callable[[Any], Any]] | None = None,  # per-arg redactors
     max_str_len: int = 500,  # truncate long strings
+    tags: list[str] | None = None,  # tags to add to the tool
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator factory. Use in place of @mcp.tool:
         @tool_with_logging(mcp)
+        def my_tool(...): ...
+
+    Or with tags:
+        @tool_with_logging(mcp, tags=['tag1', 'tag2'])
         def my_tool(...): ...
     """
     exclude = exclude or set()
@@ -87,6 +92,9 @@ def tool_with_logging(
                 return fn(*args, **kwargs)
 
         # Register the (wrapped) function as a tool
-        return mcp_app.tool(wrapper)
+        if tags is not None:
+            return mcp_app.tool(tags=tags)(wrapper)  # type: ignore[no-any-return]
+        else:
+            return mcp_app.tool(wrapper)  # type: ignore[no-any-return]
 
     return decorator

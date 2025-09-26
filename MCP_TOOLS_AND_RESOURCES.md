@@ -381,6 +381,40 @@ Gets the current game state.
 
 **Returns:** Formatted game state including campaign, session, location, date, party level, funds, combat status, active quests, and notes
 
+#### `set_mode`
+Sets the current game mode(s). Replaces existing modes.
+
+**Parameters:**
+- `modes` (str | list[str], required): Mode(s) to set. Can be a single mode string or list of modes
+
+**Returns:** Success message with set modes and primary mode
+
+**Available Modes:**
+- `setup`: Mode used when setting up a campaign rather than actively playing it
+- `town`: Mode used when in town (bartering, gathering information, etc)
+- `outdoors`: Mode active when adventuring outdoors or traveling between locations
+- `dungeon`: Party is in a dungeon
+- `combat`: Party is in combat
+
+**Behavior:**
+- Multiple modes can be combined (e.g., ["combat", "dungeon"] for dungeon combat)
+- Combat mode is automatically moved to first position if present
+- The first mode is the "primary mode" for client display priority
+
+**Examples:**
+```
+set_mode("town")                          # Single mode
+set_mode(["outdoors", "combat"])          # Multiple modes - becomes ["combat", "outdoors"]
+set_mode(["dungeon", "combat", "setup"])  # Combat prioritized - becomes ["combat", "dungeon", "setup"]
+```
+
+#### `get_mode`
+Gets the current game mode(s).
+
+**Parameters:** None
+
+**Returns:** Current modes list with primary mode indication
+
 ### Combat Management
 
 #### `start_combat`
@@ -572,6 +606,58 @@ Returns the game state for a specific campaign.
 - `campaign_name` (str): Name of the campaign
 
 **Returns:** [GameState](DATA_MODELS.md#gamestate) object containing current party location, session, combat status, and other game variables
+
+### `resource://current_campaign/mode`
+Returns the current game mode(s) for the active campaign.
+
+**Parameters:** None
+
+**Returns:** JSON object containing:
+- `modes` (list[str]): List of currently active modes
+- `primary_mode` (str | None): The primary (first) mode, or None if no modes set
+
+**Example Response:**
+```json
+{
+  "modes": ["combat", "dungeon"],
+  "primary_mode": "combat"
+}
+```
+
+### `resource://modes`
+Returns all available game modes with descriptions.
+
+**Parameters:** None
+
+**Returns:** List of mode objects, each containing:
+- `mode` (str): Mode name
+- `description` (str): Mode description
+
+**Example Response:**
+```json
+[
+  {
+    "mode": "setup",
+    "description": "Mode used when you're setting up a campaign rather than actively playing it"
+  },
+  {
+    "mode": "town",
+    "description": "Mode used when in town (typically bartering, gathering information, etc)"
+  },
+  {
+    "mode": "outdoors",
+    "description": "Mode active when adventuring outdoors or traveling between locations by land"
+  },
+  {
+    "mode": "dungeon",
+    "description": "Party is in a dungeon"
+  },
+  {
+    "mode": "combat",
+    "description": "Party is in combat"
+  }
+]
+```
 
 ## MCP Prompts
 

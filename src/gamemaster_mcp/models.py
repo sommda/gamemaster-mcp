@@ -13,6 +13,15 @@ from shortuuid import random
 
 from .logutils import logger
 
+# Available game modes with descriptions
+AVAILABLE_MODES = {
+    "setup": "Mode used when you're setting up a campaign rather than actively playing it",
+    "town": "Mode used when in town (typically bartering, gathering information, etc)",
+    "outdoors": "Mode active when adventuring outdoors or traveling between locations by land",
+    "dungeon": "Party is in a dungeon",
+    "combat": "Party is in combat",
+}
+
 
 class GameStats(BaseModel):
     """Statistics and metadata about the current campaign, and about the MCP server itself across all campaigns."""
@@ -446,6 +455,10 @@ class GameState(BaseModel):
     current_turn: str | None = None
     monsters: list[Monster] = Field(
         default_factory=list, description="Monsters the party is currently facing or aware of"
+    )
+    modes: list[str] = Field(
+        default_factory=lambda: ["setup"],
+        description="Current active modes. First mode is primary. Combat should be listed first if active."
     )
     notes: str = ""
     updated_at: datetime = Field(default_factory=datetime.now)

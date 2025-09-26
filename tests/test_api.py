@@ -20,6 +20,7 @@ from gamemaster_mcp.main import (
     create_quest,
     current_prompt,
     end_combat,
+    get_available_modes,
     get_campaign,
     get_campaign_characters,
     get_campaign_game_state,
@@ -30,10 +31,12 @@ from gamemaster_mcp.main import (
     get_current_campaign,
     get_current_campaign_characters,
     get_current_campaign_game_state,
+    get_current_campaign_mode,
     get_current_transcript,
     get_events,
     get_game_state,
     get_location,
+    get_mode,
     get_monster,
     get_npc,
     get_sessions,
@@ -49,6 +52,7 @@ from gamemaster_mcp.main import (
     override_storage,
     record_interaction,
     roll_dice,
+    set_mode,
     start_combat,
     update_character,
     update_game_state,
@@ -890,3 +894,149 @@ class TestAPI:
         assert "add_event" in prompt_text
         assert "AdventureLog" in prompt_text
         assert "SessionNotes" in prompt_text
+
+    # Mode Management Tests
+    async def test_set_mode_single_mode(self, storage_with_campaign):
+        """Test setting a single mode."""
+        override_storage(storage_with_campaign)
+
+        result = await set_mode.run({"modes": "town"})
+        result_text = result[0].text
+        assert "Set modes to: [town]" in result_text
+        assert "Primary mode: town" in result_text
+
+        # Verify the mode was actually set
+        game_state_result = await get_mode.run({})
+        mode_text = game_state_result[0].text
+        assert "Current modes: [town]" in mode_text
+        assert "Primary mode: town" in mode_text
+
+    async def test_set_mode_multiple_modes(self, storage_with_campaign):
+        """Test setting multiple modes."""
+        override_storage(storage_with_campaign)
+
+        result = await set_mode.run({"modes": ["outdoors", "dungeon"]})
+        result_text = result[0].text
+        assert "Set modes to: [outdoors, dungeon]" in result_text
+        assert "Primary mode: outdoors" in result_text
+
+        # Verify the modes were set
+        game_state_result = await get_mode.run({})
+        mode_text = game_state_result[0].text
+        assert "Current modes: [outdoors, dungeon]" in mode_text
+        assert "Primary mode: outdoors" in mode_text
+
+    async def test_set_mode_combat_priority(self, storage_with_campaign):
+        """Test that combat mode is automatically moved to first position."""
+        override_storage(storage_with_campaign)
+
+        # Set modes with combat not first
+        result = await set_mode.run({"modes": ["dungeon", "combat", "town"]})
+        result_text = result[0].text
+        assert "Set modes to: [combat, dungeon, town]" in result_text
+        assert "Primary mode: combat" in result_text
+
+        # Verify combat is first
+        game_state_result = await get_mode.run({})
+        mode_text = game_state_result[0].text
+        assert "Current modes: [combat, dungeon, town]" in mode_text
+        assert "Primary mode: combat" in mode_text
+
+    async def test_set_mode_invalid_mode(self, storage_with_campaign):
+        """Test setting an invalid mode returns error."""
+        override_storage(storage_with_campaign)
+
+        result = await set_mode.run({"modes": "invalid_mode"})
+        result_text = result[0].text
+        assert "Invalid modes: invalid_mode" in result_text
+        assert "Available modes:" in result_text
+
+    async def test_set_mode_mixed_valid_invalid(self, storage_with_campaign):
+        """Test setting mix of valid and invalid modes."""
+        override_storage(storage_with_campaign)
+
+        result = await set_mode.run({"modes": ["town", "invalid", "combat"]})
+        result_text = result[0].text
+        assert "Invalid modes: invalid" in result_text
+        assert "Available modes:" in result_text
+
+    async def test_get_mode_no_modes(self, temp_storage):
+        """Test getting mode when none are set."""
+        override_storage(temp_storage)
+
+        # Create a campaign first
+        await create_campaign.run({
+            "name": "Test Campaign",
+            "description": "Test description",
+            "dm_name": "Test DM"
+        })
+
+        # The default mode should be "setup"
+        result = await get_mode.run({})
+        result_text = result[0].text
+        assert "Current modes: [setup]" in result_text
+        assert "Primary mode: setup" in result_text
+
+    async def test_get_available_modes_resource(self):
+        """Test the available modes resource."""
+        modes_json = await get_available_modes.read()
+        modes = json.loads(modes_json)
+
+        # Check structure
+        assert isinstance(modes, list)
+        assert len(modes) == 5  # setup, town, outdoors, dungeon, combat
+
+        # Check each mode has required fields
+        mode_names = set()
+        for mode_info in modes:
+            assert "mode" in mode_info
+            assert "description" in mode_info
+            assert isinstance(mode_info["mode"], str)
+            assert isinstance(mode_info["description"], str)
+            mode_names.add(mode_info["mode"])
+
+        # Verify all expected modes are present
+        expected_modes = {"setup", "town", "outdoors", "dungeon", "combat"}
+        assert mode_names == expected_modes
+
+    async def test_get_current_campaign_mode_resource(self, storage_with_campaign):
+        """Test the current campaign mode resource."""
+        override_storage(storage_with_campaign)
+
+        # Set some modes first
+        await set_mode.run({"modes": ["combat", "dungeon"]})
+
+        # Get mode via resource
+        mode_data_json = await get_current_campaign_mode.read()
+        mode_data = json.loads(mode_data_json)
+
+        assert "modes" in mode_data
+        assert "primary_mode" in mode_data
+        assert mode_data["modes"] == ["combat", "dungeon"]
+        assert mode_data["primary_mode"] == "combat"
+
+    async def test_get_current_campaign_mode_resource_no_campaign(self, temp_storage):
+        """Test mode resource with no current campaign."""
+        override_storage(temp_storage)
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            await get_current_campaign_mode.read()
+        assert "No current campaign" in str(exc_info.value)
+
+    async def test_mode_persistence_in_game_state(self, storage_with_campaign):
+        """Test that modes are properly stored in game state."""
+        override_storage(storage_with_campaign)
+
+        # Set modes
+        await set_mode.run({"modes": ["town", "setup"]})
+
+        # Get game state and verify modes are included
+        game_state_str = await get_game_state.run({})
+        # The get_game_state function doesn't currently show modes in its output
+        # but they should be persisted in the underlying data structure
+
+        # Verify by getting modes directly
+        mode_result = await get_mode.run({})
+        mode_text = mode_result[0].text
+        assert "Current modes: [town, setup]" in mode_text
+        assert "Primary mode: town" in mode_text

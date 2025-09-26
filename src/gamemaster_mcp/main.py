@@ -9,7 +9,7 @@ import os
 import random
 import re
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -17,6 +17,7 @@ from fastmcp.prompts.prompt import Message
 from pydantic import Field
 
 from .models import (
+    AVAILABLE_MODES,
     NPC,
     AbilityScore,
     AdventureEvent,
@@ -930,6 +931,58 @@ def get_game_state() -> str:
     return state_info
 
 
+# Mode Management Tools
+@tool_with_logging(mcp)
+def set_mode(
+    modes: Annotated[list[str] | str, Field(description="Mode(s) to set. Can be a single mode string or list of modes")],
+) -> str:
+    """Set the current game mode(s). Replaces existing modes.
+
+    Available modes: setup, town, outdoors, dungeon, combat
+    Combat should be listed first if active.
+    """
+    # Convert single mode to list
+    if isinstance(modes, str):
+        modes = [modes]
+
+    # Validate modes
+    invalid_modes = [mode for mode in modes if mode not in AVAILABLE_MODES]
+    if invalid_modes:
+        return f"Invalid modes: {', '.join(invalid_modes)}. Available modes: {', '.join(AVAILABLE_MODES.keys())}"
+
+    # Ensure combat is first if present
+    if "combat" in modes and modes[0] != "combat":
+        modes = ["combat"] + [mode for mode in modes if mode != "combat"]
+
+    # Update game state
+    game_state = storage.get_game_state()
+    if not game_state:
+        return "No game state available."
+
+    game_state.modes = modes
+    storage.update_game_state(modes=modes)
+
+    primary_mode = modes[0] if modes else "none"
+    modes_str = ", ".join(modes)
+    return f"Set modes to: [{modes_str}]. Primary mode: {primary_mode}"
+
+
+@tool_with_logging(mcp)
+def get_mode() -> str:
+    """Get the current game mode(s)."""
+    game_state = storage.get_game_state()
+    if not game_state:
+        return "No game state available."
+
+    modes = game_state.modes
+    if not modes:
+        return "No modes set."
+
+    primary_mode = modes[0]
+    modes_str = ", ".join(modes)
+    return f"Current modes: [{modes_str}]. Primary mode: {primary_mode}"
+
+
 # Combat Management Tools
 @tool_with_logging(mcp)
 def start_combat(
@@ -1250,6 +1303,28 @@ def get_campaign_game_state(campaign_name: str):
         return campaign.game_state
     except FileNotFoundError:
         raise FileNotFoundError(f"Campaign '{campaign_name}' not found")
+
+
+# Mode resources
+@mcp.resource("resource://current_campaign/mode")
+def get_current_campaign_mode() -> dict[str, Any]:
+    """Get current campaign mode(s)."""
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        raise FileNotFoundError("No current campaign")
+    return {
+        "modes": current_campaign.game_state.modes,
+        "primary_mode": current_campaign.game_state.modes[0] if current_campaign.game_state.modes else None
+    }
+
+
+@mcp.resource("resource://modes")
+def get_available_modes() -> list[dict[str, str]]:
+    """Get all available modes with descriptions."""
+    return [
+        {"mode": mode, "description": description}
+        for mode, description in AVAILABLE_MODES.items()
+    ]
 
 
 @mcp.prompt

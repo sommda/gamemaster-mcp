@@ -94,8 +94,22 @@ Tracks the current state of the campaign session.
 - `in_combat` (bool): Whether party is currently in combat
 - `current_turn` (str | None): Whose turn it is in combat
 - `monsters` (list[Monster]): Monsters the party is currently facing or aware of
+- `modes` (list[str]): Current active game modes (default: ["setup"])
 - `notes` (str): Current situation notes
 - `updated_at` (datetime): Last update timestamp
+
+**Available Modes:**
+- `setup`: Mode used when setting up a campaign rather than actively playing it
+- `town`: Mode used when in town (bartering, gathering information, etc)
+- `outdoors`: Mode active when adventuring outdoors or traveling between locations
+- `dungeon`: Party is in a dungeon
+- `combat`: Party is in combat
+
+**Mode Behavior:**
+- Multiple modes can be active simultaneously (e.g., ["combat", "dungeon"] for dungeon combat)
+- The first mode in the list is the "primary mode" and has priority for client displays
+- Combat mode is automatically moved to first position when present
+- Modes enable contextual tool filtering and add mode-specific rules to prompts
 
 **Example:**
 ```json
