@@ -18,6 +18,7 @@ from pydantic import Field
 
 from .models import (
     AVAILABLE_MODES,
+    MODE_PROMPTS,
     NPC,
     AbilityScore,
     AdventureEvent,
@@ -34,6 +35,9 @@ from .models import (
     SessionNote,
     Transcript,
 )
+
+from .prompts import core_prompt, setup_prompt
+
 from .storage import DnDStorage
 from .tool_with_logging import tool_with_logging
 
@@ -72,7 +76,7 @@ def override_storage(ovr_storage: DnDStorage) -> None:
 
 
 # Campaign management tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def create_campaign(
     name: Annotated[str, Field(description="Campaign name")],
     description: Annotated[
@@ -95,7 +99,7 @@ def create_campaign(
     return f"🌟 Created campaign: '{campaign.name} and set as active 🌟'"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_campaign_info() -> str:
     """Get information about the current campaign."""
     campaign = storage.get_current_campaign()
@@ -123,7 +127,7 @@ def get_campaign_info() -> str:
     )
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def list_campaigns() -> str:
     """List all available campaigns."""
     campaigns = storage.list_campaigns()
@@ -141,7 +145,7 @@ def list_campaigns() -> str:
     return "**Available Campaigns:**\n" + "\n".join(campaign_list)
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def load_campaign(name: Annotated[str, Field(description="Campaign name to load")]) -> str:
     """Load a specific campaign."""
     campaign = storage.load_campaign(name)
@@ -191,7 +195,7 @@ def get_current_campaign_characters() -> list[Character]:
 
 
 # Character Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def create_character(
     name: Annotated[str, Field(description="Character name")],
     character_class: Annotated[str, Field(description="Character class")],
@@ -336,7 +340,7 @@ def update_character(
     return f"Updated {character.name}'s properties: {'; '.join(updated_fields)}."
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def bulk_update_characters(
     names_or_ids: Annotated[
         list[str], Field(description="List of character names or IDs to update.")
@@ -441,7 +445,7 @@ def bulk_update_characters(
     return "\n".join(response_parts) if response_parts else "No characters found to update."
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def add_item_to_character(
     character_name_or_id: Annotated[
         str, Field(description="Name or ID of the character to receive the item.")
@@ -475,7 +479,7 @@ def add_item_to_character(
     return f"Added {item.quantity}x {item.name} to {character.name}'s inventory"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_characters() -> str:
     """List all characters in the current campaign."""
     characters = storage.list_characters()
@@ -494,7 +498,7 @@ def list_characters() -> str:
 
 
 # NPC Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def create_npc(
     name: Annotated[str, Field(description="NPC name")],
     description: Annotated[
@@ -528,7 +532,7 @@ def create_npc(
     return f"Created NPC '{npc.name}'"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_npc(name: Annotated[str, Field(description="NPC name")]) -> str:
     """Get NPC information."""
     npc = storage.get_npc(name)
@@ -550,7 +554,7 @@ def get_npc(name: Annotated[str, Field(description="NPC name")]) -> str:
     return npc_info
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_npcs() -> str:
     """List all NPCs in the current campaign."""
     npcs = storage.list_npcs()
@@ -568,7 +572,7 @@ def list_npcs() -> str:
 
 
 # Monster Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def create_monster(
     name: Annotated[str, Field(description="Instance name for this specific monster")],
     monster_type: Annotated[
@@ -637,7 +641,7 @@ def create_monster(
     return f"Created monster '{monster.name}' ({monster.monster_type}) with {monster.hit_points_current}/{monster.hit_points_max} HP"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_monster(name: Annotated[str, Field(description="Monster name")]) -> str:
     """Get monster information."""
     current_campaign = storage.get_current_campaign()
@@ -703,7 +707,7 @@ CHA {monster.abilities["charisma"].score} ({monster.abilities["charisma"].mod:+d
     return monster_info
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_monsters() -> str:
     """List all monsters in the current game state."""
     current_campaign = storage.get_current_campaign()
@@ -727,7 +731,7 @@ def list_monsters() -> str:
 
 
 # Location Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def create_location(
     name: Annotated[str, Field(description="Location name")],
     location_type: Annotated[
@@ -754,7 +758,7 @@ def create_location(
     return f"Created location '{location.name}' ({location.location_type})"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_location(name: Annotated[str, Field(description="Location name")]) -> str:
     """Get location information."""
     location = storage.get_location(name)
@@ -777,7 +781,7 @@ def get_location(name: Annotated[str, Field(description="Location name")]) -> st
     return loc_info
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_locations() -> str:
     """List all locations in the current campaign."""
     locations = storage.list_locations()
@@ -794,7 +798,7 @@ def list_locations() -> str:
 
 
 # Quest Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def create_quest(
     title: Annotated[str, Field(description="Quest title")],
     description: Annotated[str, Field(description="Quest description")],
@@ -817,7 +821,7 @@ def create_quest(
     return f"Created quest '{quest.title}'"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def update_quest(
     title: Annotated[str, Field(description="Quest title")],
     status: Annotated[
@@ -847,7 +851,7 @@ def update_quest(
     return f"Updated quest '{title}'"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_quests(
     status: Annotated[
         Literal["active", "completed", "failed", "on_hold"] | None,
@@ -872,7 +876,7 @@ def list_quests(
 
 
 # Game State Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def update_game_state(
     current_location: Annotated[str | None, Field(description="Current party location")] = None,
     current_session: Annotated[
@@ -907,7 +911,7 @@ def update_game_state(
     return "Updated game state"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_game_state() -> str:
     """Get the current game state."""
     game_state = storage.get_game_state()
@@ -932,7 +936,7 @@ def get_game_state() -> str:
 
 
 # Mode Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def set_mode(
     modes: Annotated[list[str] | str, Field(description="Mode(s) to set. Can be a single mode string or list of modes")],
 ) -> str:
@@ -967,7 +971,7 @@ def set_mode(
     return f"Set modes to: [{modes_str}]. Primary mode: {primary_mode}"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_mode() -> str:
     """Get the current game mode(s)."""
     game_state = storage.get_game_state()
@@ -984,7 +988,7 @@ def get_mode() -> str:
 
 
 # Combat Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:town", "mode:dunegon", "mode:outdoors"])
 def start_combat(
     participants: Annotated[
         list[CombatParticipant], Field(description="Combat participants with initiative order")
@@ -1007,14 +1011,14 @@ def start_combat(
     return f"**Combat Started!**\n\n**Initiative Order:**\n{order_text}\n\n**Current Turn:** {initiative_order[0].name if initiative_order else 'None'}"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:combat"])
 def end_combat() -> str:
     """End the current combat encounter."""
     storage.update_game_state(in_combat=False, initiative_order=[], current_turn=None)
     return "Combat ended."
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:combat"])
 def next_turn() -> str:
     """Advance to the next turn in combat."""
     game_state = storage.get_game_state()
@@ -1041,7 +1045,7 @@ def next_turn() -> str:
 
 
 # Session Management Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def add_session_note(
     session_number: Annotated[int, Field(description="Session number", ge=1)],
     summary: Annotated[str, Field(description="Session summary")],
@@ -1074,7 +1078,7 @@ def add_session_note(
     return f"Added session note for Session {session_note.session_number}"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:setup"])
 def get_sessions() -> str:
     """Get all session notes."""
     sessions = storage.get_sessions()
@@ -1095,7 +1099,7 @@ def get_sessions() -> str:
 
 
 # Adventure Log Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def add_event(
     event_type: Annotated[
         Literal["combat", "roleplay", "exploration", "quest", "character", "world", "session"],
@@ -1143,7 +1147,7 @@ def add_event(
     return f"Added {event_type.lower()} event: '{event.title}'"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_events(
     limit: Annotated[
         int | None, Field(description="Maximum number of events to return", ge=1)
@@ -1184,7 +1188,7 @@ def get_events(
 
 
 # Utility Tools
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def roll_dice(
     dice_notation: Annotated[str, Field(description="Dice notation (e.g., '1d20', '3d6+2')")],
     advantage: Annotated[bool, Field(description="Roll with advantage")] = False,
@@ -1330,43 +1334,15 @@ def get_available_modes() -> list[dict[str, str]]:
 @mcp.prompt
 def current_prompt() -> str:
     """Generates the most appropriate prompt for the current game state."""
-    prompt = """
-You are a Dungeon Master (DM), powered by the Gamemaster MCP server.
-Your primary role is to manage all aspects of a Dungeons & Dragons campaign using a rich set of specialized tools.
-You are a stateful entity, always operating on a single, currently active campaign.
+    prompt = core_prompt
+    current_campaign = storage.get_current_campaign()
+    if not current_campaign:
+        prompt += setup_prompt
+    else:
+        for mode in current_campaign.game_state.modes:
+            if MODE_PROMPTS.get(mode):
+                prompt += MODE_PROMPTS.get(mode)
 
-**Core Principles:**
-
-1.  **Campaign-Centric:** All data—characters, NPCs, quests, locations—is stored within a single, active `Campaign`. Always be aware of the current campaign context.
-If a user's request seems to reference a different campaign, use the `list_campaigns` and `load_campaign` tools to switch context, optionally asking the user if they mean to switch campaigns as necessary.
-2.  **Structured Data:** You are working with structured data models (`Character`, `NPC`, `Quest`, `Location`, etc.). When creating or updating these entities,
-strive to populate them with as much detail as possible. If a user is vague, ask for specifics (e.g., "What is the character's class and race? What are their ability scores?").
-3.  **Proactive Assistance:** Don't just execute single commands. Fulfill complex user requests by chaining tools together.
-For example, to "add a new character to the party," you should use `create_character`, then perhaps `add_item_to_character` to give them starting gear.
-4.  **Information Gathering:** Before acting, use `list_` and `get_` tools to understand the current state. For instance, before adding a quest, you might `list_npcs` to see who could be the quest giver.
-5.  **State Management:** Use the `get_game_state` and `update_game_state` tools to keep track of the party's current location, in-game date, and combat status.
-6.  **Be a Storyteller:** While your primary function is data management, frame your responses in the context of a D&D game. You are not just a database; you are the keeper of the campaign's world.
-
-**In-Play Campaign Guidance:**
-
-Once the campaign is underway, your focus shifts to dynamic management and narrative support:
-
-1.  **Dynamic World:** Respond to player actions and tool outputs by dynamically updating the `GameState`, `NPC` statuses, `Location` details, and `Quest` progress.
-2.  **Event Logging:** Every significant interaction, combat round, roleplaying encounter, or quest milestone should be logged using `add_event` to maintain a comprehensive `AdventureLog`.
-3.  **Proactive DM Support:** Anticipate the DM's needs. If a character takes damage, suggest `update_character_hp`. If they enter a new area, offer `get_location` details.
-4.  **Narrative Cohesion:** Maintain narrative consistency. Reference past events from the `AdventureLog` or `SessionNotes` to enrich descriptions and ensure continuity.
-5.  **Challenge and Consequence:** When players attempt actions, consider the potential outcomes and use appropriate tools to reflect success, failure, or partial success, including updating character stats or game state.
-6.  **Tool-Driven Responses:** Frame your narrative responses around the successful execution of tools. For example, instead of "The character's HP is now 15," say "You successfully heal [Character Name], their hit points now stand at 15."
-
-**Player Characters**
-
-A typical campaign includes a party of multiple player characters.
-The user may choose to take the role of a single character. In this case you should control all other characters, taking their turns as needed.
-Alternately the user may choose to control multiple (or all) characters at once. In this case, prompt the user for actions where needed, letting the user
-know whose turn it is.
-
-The user may only take control of player characters. You will always control NPCs and monsters.
-"""
     return Message(prompt)
 
 

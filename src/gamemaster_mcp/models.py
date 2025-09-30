@@ -11,6 +11,15 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field
 from shortuuid import random
 
+from .prompts import (
+    core_prompt,
+    setup_prompt,
+    outdoor_prompt,
+    dungeon_prompt,
+    town_prompt,
+    combat_prompt
+)
+
 from .logutils import logger
 
 # Available game modes with descriptions
@@ -20,6 +29,14 @@ AVAILABLE_MODES = {
     "outdoors": "Mode active when adventuring outdoors or traveling between locations by land",
     "dungeon": "Party is in a dungeon",
     "combat": "Party is in combat",
+}
+
+MODE_PROMPTS = {
+    "setup": setup_prompt,
+    "town": town_prompt,
+    "outdoors": outdoor_prompt,
+    "dungeon": dungeon_prompt,
+    "combat": combat_prompt
 }
 
 
