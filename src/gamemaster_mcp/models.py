@@ -474,7 +474,7 @@ class GameState(BaseModel):
         default_factory=list, description="Monsters the party is currently facing or aware of"
     )
     modes: list[str] = Field(
-        default_factory=lambda: ["setup"],
+        default_factory=lambda: [],
         description="Current active modes. First mode is primary. Combat should be listed first if active."
     )
     notes: str = ""
