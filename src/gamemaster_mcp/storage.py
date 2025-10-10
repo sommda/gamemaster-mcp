@@ -21,6 +21,7 @@ from .models import (
     SessionNote,
     Transcript,
     TranscriptEntry,
+    TranscriptTool,
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -544,11 +545,34 @@ class DnDStorage:
 
     def add_transcript_entry(
         self,
-        player_entry: str,
-        game_response: str,
+        player_entry: str | None = None,
+        game_response: str | None = None,
+        tool_name: str | None = None,
+        tool_params: dict | None = None,
+        tool_response: str | None = None,
         campaign_name: str | None = None,
         session_number: int | None = None,
     ) -> Transcript:
+        """Add either a player/game interaction or a tool call to the transcript.
+
+        For player interactions, provide player_entry and game_response.
+        For tool calls, provide tool_name, tool_params, and tool_response.
+        """
+        # Validate that we have either player interaction or tool call params
+        is_player_interaction = player_entry is not None and game_response is not None
+        is_tool_call = tool_name is not None and tool_params is not None and tool_response is not None
+
+        if not (is_player_interaction or is_tool_call):
+            raise ValueError(
+                "Must provide either (player_entry and game_response) or "
+                "(tool_name, tool_params, and tool_response)"
+            )
+
+        if is_player_interaction and is_tool_call:
+            raise ValueError(
+                "Cannot provide both player interaction and tool call parameters"
+            )
+
         if campaign_name is None:
             campaign = self.get_current_campaign()
         else:
@@ -563,10 +587,30 @@ class DnDStorage:
                 campaign=campaign.name, session_number=session_number, entries=[]
             )
 
-        transcript.entries.append(
-            TranscriptEntry(
-                transcript_id=transcript.id, player_entry=player_entry, game_response=game_response
+        if is_player_interaction:
+            # Type assertion: we've validated these are non-None above
+            assert player_entry is not None
+            assert game_response is not None
+            transcript.entries.append(
+                TranscriptEntry(
+                    transcript_id=transcript.id,
+                    player_entry=player_entry,
+                    game_response=game_response
+                )
             )
-        )
+        else:
+            # Type assertion: we've validated these are non-None above
+            assert tool_name is not None
+            assert tool_params is not None
+            assert tool_response is not None
+            transcript.entries.append(
+                TranscriptTool(
+                    transcript_id=transcript.id,
+                    tool_name=tool_name,
+                    tool_params=tool_params,
+                    tool_response=tool_response
+                )
+            )
+
         self._save_transcript(transcript)
         return transcript

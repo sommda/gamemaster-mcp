@@ -503,7 +503,19 @@ Records a player-game interaction in the transcript.
 - `campaign_name` (str, optional): Campaign name (uses current if None)
 - `session_number` (int, optional): Session number (uses latest if None, ≥1)
 
-**Returns:** None (records interaction)
+**Returns:** Success message
+
+#### `record_tool_call`
+Records a tool call in the transcript for context tracking.
+
+**Parameters:**
+- `tool_name` (str, required): Name of the tool that was called
+- `tool_params` (dict, required): Parameters passed to the tool
+- `tool_response` (str, required): Response returned by the tool
+- `campaign_name` (str, optional): Campaign name (uses current if None)
+- `session_number` (int, optional): Session number (uses latest if None, ≥1)
+
+**Returns:** Success message
 
 ### Utility Tools
 

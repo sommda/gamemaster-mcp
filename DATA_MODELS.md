@@ -31,6 +31,7 @@ This document provides comprehensive documentation for all data models used in t
 7. [Transcript Models](#transcript-models)
    - [Transcript](#transcript)
    - [TranscriptEntry](#transcriptentry)
+   - [TranscriptTool](#transcripttool)
 8. [System Models](#system-models)
    - [GameStats](#gamestats)
 
@@ -646,13 +647,13 @@ Enumeration of event types for the adventure log.
 
 ### Transcript
 
-Complete transcript of player-game interactions for a session.
+Complete transcript of player-game interactions and tool calls for a session.
 
 **Fields:**
 - `id` (str): Unique 8-character identifier
 - `campaign` (str): Associated campaign name
 - `session_number` (int): Session number
-- `entries` (list[TranscriptEntry]): All interaction entries
+- `entries` (list[TranscriptEntry | TranscriptTool]): All interaction and tool call entries
 
 ### TranscriptEntry
 
@@ -671,6 +672,28 @@ Individual player-game interaction entry.
   "timestamp": "2024-01-15T19:30:00",
   "player_entry": "I want to investigate the ancient altar",
   "game_response": "As you approach the altar, you notice strange runes glowing faintly..."
+}
+```
+
+### TranscriptTool
+
+Individual tool call entry in the transcript.
+
+**Fields:**
+- `transcript_id` (str): Associated transcript ID
+- `timestamp` (datetime): When tool was called
+- `tool_name` (str): Name of the tool that was called
+- `tool_params` (dict[str, Any]): Parameters passed to the tool
+- `tool_response` (str): Response returned by the tool
+
+**Example:**
+```json
+{
+  "transcript_id": "TRS12345",
+  "timestamp": "2024-01-15T19:31:00",
+  "tool_name": "roll_dice",
+  "tool_params": {"dice": "1d20", "modifier": 5},
+  "tool_response": "Rolled 1d20+5 = 18"
 }
 ```
 

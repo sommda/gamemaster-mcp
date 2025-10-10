@@ -1277,8 +1277,41 @@ def record_interaction(
         "Session number to which this interaction applies, or none to use the latest session",
         Field(description="Session number", ge=1),
     ] = None,
-):
-    storage.add_transcript_entry(player_entry, game_response, campaign_name, session_number)
+) -> str:
+    """Record a player/game interaction in the transcript."""
+    storage.add_transcript_entry(
+        player_entry=player_entry,
+        game_response=game_response,
+        campaign_name=campaign_name,
+        session_number=session_number
+    )
+    return "Interaction recorded successfully"
+
+
+@tool_with_logging(mcp)
+def record_tool_call(
+    tool_name: Annotated[str, "Name of the tool that was called"],
+    tool_params: Annotated[dict, "Parameters passed to the tool"],
+    tool_response: Annotated[str, "Response returned by the tool"],
+    campaign_name: Annotated[
+        str | None,
+        "Name of campaign to which this tool call applies, or none to use the current campaign",
+    ] = None,
+    session_number: Annotated[
+        int | None,
+        "Session number to which this tool call applies, or none to use the latest session",
+        Field(description="Session number", ge=1),
+    ] = None,
+) -> str:
+    """Record a tool call in the transcript."""
+    storage.add_transcript_entry(
+        tool_name=tool_name,
+        tool_params=tool_params,
+        tool_response=tool_response,
+        campaign_name=campaign_name,
+        session_number=session_number
+    )
+    return "Tool call recorded successfully"
 
 
 @mcp.resource("resource://transcripts/{campaign_name}/{session_number}")

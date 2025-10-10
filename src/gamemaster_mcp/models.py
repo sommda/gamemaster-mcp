@@ -474,7 +474,7 @@ class GameState(BaseModel):
         default_factory=list, description="Monsters the party is currently facing or aware of"
     )
     modes: list[str] = Field(
-        default_factory=lambda: [],
+        default_factory=lambda: ["setup"],
         description="Current active modes. First mode is primary. Combat should be listed first if active."
     )
     notes: str = ""
@@ -551,13 +551,23 @@ class TranscriptEntry(BaseModel):
     game_response: str
 
 
+class TranscriptTool(BaseModel):
+    """Tool call entry in a transcript."""
+
+    transcript_id: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    tool_name: Annotated[str, "Name of the tool that was called"]
+    tool_params: Annotated[dict[str, Any], "Parameters passed to the tool"]
+    tool_response: Annotated[str, "Response returned by the tool"]
+
+
 class Transcript(BaseModel):
     """Transcript of a session within a campaign"""
 
     id: str = Field(default_factory=lambda: random(length=8))
     campaign: Annotated[str, "Name of the campaign associated with this transcript"]
     session_number: Annotated[int, "Session number described by this transcript"]
-    entries: list[TranscriptEntry]
+    entries: list[TranscriptEntry | TranscriptTool]
 
 
 __all__ = [
@@ -581,5 +591,6 @@ __all__ = [
     "Attack",
     "CombatParticipant",
     "TranscriptEntry",
+    "TranscriptTool",
     "Transcript",
 ]

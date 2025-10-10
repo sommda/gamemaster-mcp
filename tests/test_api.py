@@ -51,6 +51,7 @@ from gamemaster_mcp.main import (
     next_turn,
     override_storage,
     record_interaction,
+    record_tool_call,
     roll_dice,
     set_mode,
     start_combat,
@@ -748,8 +749,28 @@ class TestAPI:
                 "game_response": "You find a hidden door behind the bookshelf",
             }
         )
-        # record_interaction returns None, so we just check it doesn't crash
-        assert results is None or len(results) == 0
+        # record_interaction now returns a success message
+        assert results is not None
+
+    async def test_record_tool_call(self, storage_with_campaign):
+        """Test recording tool call."""
+        override_storage(storage_with_campaign)
+        results = await record_tool_call.run(
+            {
+                "tool_name": "create_character",
+                "tool_params": {"name": "Frodo", "level": 5},
+                "tool_response": "Character created successfully",
+            }
+        )
+        # record_tool_call returns a success message
+        assert results is not None
+
+        # Verify it was recorded
+        transcript = storage_with_campaign.get_transcript()
+        assert len(transcript.entries) == 1
+        from gamemaster_mcp.models import TranscriptTool
+        assert isinstance(transcript.entries[0], TranscriptTool)
+        assert transcript.entries[0].tool_name == "create_character"
 
     async def test_get_transcript_resource(self, storage_with_campaign):
         """Test getting transcript as resource."""
