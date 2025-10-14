@@ -15,11 +15,12 @@ class TestTranscriptManagement:
         storage_with_campaign.add_transcript_entry("command 2", "response 2")
 
         transcript = storage_with_campaign.get_transcript()
-        assert len(transcript.entries) == 2
-        assert transcript.entries[0].player_entry == "command 1"
-        assert transcript.entries[0].game_response == "response 1"
-        assert transcript.entries[1].player_entry == "command 2"
-        assert transcript.entries[1].game_response == "response 2"
+        # Transcript now uses children (TranscriptInteraction nodes)
+        assert len(transcript.children) == 2
+        assert transcript.children[0].user_text == "command 1"
+        assert transcript.children[0].responses[0].content == "response 1"
+        assert transcript.children[1].user_text == "command 2"
+        assert transcript.children[1].responses[0].content == "response 2"
 
         assert transcript.campaign == storage_with_campaign.get_current_campaign().name
-        assert transcript.session_number == 0
+        assert transcript.session_number == 1  # current_session defaults to 1

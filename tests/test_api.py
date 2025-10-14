@@ -638,7 +638,10 @@ class TestAPI:
     async def test_end_combat(self, storage_with_campaign):
         """Test ending combat encounter."""
         override_storage(storage_with_campaign)
-        results = await end_combat.run({})
+        results = await end_combat.run({
+            "result": "victory",
+            "summary": "The heroes emerged victorious"
+        })
         assert len(results) == 1
         assert "Combat ended" in results[0].text
 
@@ -769,7 +772,8 @@ class TestAPI:
         )
         assert transcript.campaign == campaign_name
         assert transcript.session_number == 1
-        assert len(transcript.entries) >= 1
+        # Transcript now uses children (TranscriptInteraction nodes)
+        assert len(transcript.children) >= 1
 
     async def test_get_current_transcript_resource(self, storage_with_campaign):
         """Test getting current transcript as resource."""
@@ -788,11 +792,13 @@ class TestAPI:
 
             transcript_data = json.loads(transcript)
             assert transcript_data["campaign"] == storage_with_campaign.get_current_campaign().name
-            assert len(transcript_data["entries"]) >= 1
+            # Transcript now uses children instead of entries
+            assert len(transcript_data["children"]) >= 1
         elif transcript is not None and hasattr(transcript, "campaign"):
-            # If it returns a proper Transcript object
+            # If it returns a proper TranscriptTree object
             assert transcript.campaign == storage_with_campaign.get_current_campaign().name
-            assert len(transcript.entries) >= 1
+            # Transcript now uses children instead of entries
+            assert len(transcript.children) >= 1
         else:
             # If transcript doesn't exist, that's also a valid test outcome
             assert transcript is None

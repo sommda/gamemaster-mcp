@@ -474,7 +474,7 @@ class GameState(BaseModel):
         default_factory=list, description="Monsters the party is currently facing or aware of"
     )
     modes: list[str] = Field(
-        default_factory=lambda: [],
+        default_factory=lambda: ["setup"],
         description="Current active modes. First mode is primary. Combat should be listed first if active."
     )
     notes: str = ""
@@ -552,12 +552,120 @@ class TranscriptEntry(BaseModel):
 
 
 class Transcript(BaseModel):
-    """Transcript of a session within a campaign"""
+    """Transcript of a session within a campaign (OLD FORMAT - kept for backward compatibility)"""
 
     id: str = Field(default_factory=lambda: random(length=8))
     campaign: Annotated[str, "Name of the campaign associated with this transcript"]
     session_number: Annotated[int, "Session number described by this transcript"]
     entries: list[TranscriptEntry]
+
+
+# New tree-based transcript models
+
+class TranscriptNode(BaseModel):
+    """Base class for all transcript tree nodes."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    node_type: str  # Will be overridden by subclasses with Literal
+
+    # Optional metadata
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class ResponseText(BaseModel):
+    """Text response from the LLM."""
+
+    type: str = Field(default="text")
+    content: str
+
+
+class InteractionToolCall(BaseModel):
+    """Details of a tool call made during interaction."""
+
+    name: str
+    id: str
+    input: dict[str, Any]
+    response: str
+
+
+class ResponseTools(BaseModel):
+    """Tool call response from the LLM."""
+
+    type: str = Field(default="tools")
+    calls: list[InteractionToolCall]
+
+
+# Union type for responses
+TranscriptInteractionResponse = ResponseText | ResponseTools
+
+
+class TranscriptInteraction(TranscriptNode):
+    """Leaf node representing single user-LLM exchange."""
+
+    node_type: str = Field(default="interaction")
+    user_text: str
+    responses: list[TranscriptInteractionResponse]
+
+    # Optional metadata
+    character_speaking: str | None = None
+    importance: int = Field(ge=1, le=5, default=3)
+
+
+class TranscriptCombat(TranscriptNode):
+    """Interior node representing a combat encounter."""
+
+    node_type: str = Field(default="combat")
+
+    # Combat summary
+    participants: list[str]
+    result: str
+    summary: str
+
+    # Detailed combat log
+    actions: list[TranscriptInteraction] = Field(default_factory=list)
+
+    # Combat metadata
+    location: str | None = None
+    rounds: int | None = None
+    casualties: list[str] = Field(default_factory=list)
+
+
+class TranscriptAdventure(TranscriptNode):
+    """Interior node representing a story arc or quest."""
+
+    node_type: str = Field(default="adventure")
+
+    # Adventure summary
+    title: str | None = None
+    summary: str
+
+    # Adventure contents - Forward reference for nested adventures
+    actions: list["TranscriptInteraction | TranscriptCombat | TranscriptAdventure"] = Field(default_factory=list)
+
+    # Adventure metadata
+    quest_id: str | None = None
+    locations: list[str] = Field(default_factory=list)
+    npcs_met: list[str] = Field(default_factory=list)
+    rewards: list[str] = Field(default_factory=list)
+
+
+class TranscriptTree(TranscriptNode):
+    """Root node of the transcript tree (NEW FORMAT)."""
+
+    node_type: str = Field(default="transcript")
+
+    campaign: str
+    session_number: int
+
+    # Children - can be any mix of interactions, combats, adventures
+    children: list[TranscriptInteraction | TranscriptCombat | TranscriptAdventure] = Field(default_factory=list)
+
+    # Current parent tracking
+    current_parent_id: str | None = None
+
+    # Metadata
+    characters_present: list[str] = Field(default_factory=list)
 
 
 __all__ = [
@@ -582,4 +690,14 @@ __all__ = [
     "CombatParticipant",
     "TranscriptEntry",
     "Transcript",
+    # New tree-based transcript models
+    "TranscriptNode",
+    "ResponseText",
+    "InteractionToolCall",
+    "ResponseTools",
+    "TranscriptInteractionResponse",
+    "TranscriptInteraction",
+    "TranscriptCombat",
+    "TranscriptAdventure",
+    "TranscriptTree",
 ]

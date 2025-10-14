@@ -14,6 +14,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
    - [Quest Management](#quest-management)
    - [Game State Management](#game-state-management)
    - [Combat Management](#combat-management)
+   - [Adventure Management](#adventure-management)
    - [Session Management](#session-management)
    - [Adventure Log](#adventure-log)
    - [Transcript Management](#transcript-management)
@@ -25,7 +26,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
 
 ## Overview
 
-The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 28+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to adventure logging.
+The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 30+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to hierarchical adventure tracking.
 
 **Core Architecture:**
 - **Campaign-centric design**: All data is organized within [Campaign](DATA_MODELS.md#campaign) objects
@@ -426,11 +427,23 @@ Initiates a combat encounter with initiative order.
 **Returns:** Combat start message with initiative order and current turn
 
 #### `end_combat`
-Ends the current combat encounter.
+Ends the current combat encounter and records it in the transcript.
 
-**Parameters:** None
+**Parameters:**
+- `result` (str, required): Combat result (e.g., "victory", "defeat", "fled")
+- `summary` (str, required): Brief summary of how the combat ended
+- `casualties` (list[str], optional): List of participants who died or were defeated
 
-**Returns:** Combat end confirmation
+**Returns:** Combat end confirmation with transcript recording status
+
+**Example:**
+```python
+end_combat(
+    result="victory",
+    summary="The heroes defeated the orc raiding party after an intense battle",
+    casualties=["Orc Chieftain", "Goblin Scout x2"]
+)
+```
 
 #### `next_turn`
 Advances to the next turn in combat.
@@ -438,6 +451,55 @@ Advances to the next turn in combat.
 **Parameters:** None
 
 **Returns:** Next participant's turn
+
+---
+
+### Adventure Management
+
+#### `start_adventure`
+Starts an adventure and begins recording interactions in the transcript as part of this adventure. All subsequent interactions, combats, and nested adventures will be recorded within this adventure node until `end_adventure` is called.
+
+**Parameters:**
+- `title` (str, required): Adventure title (e.g., "The Temple of Doom")
+- `quest_id` (str, optional): Associated quest ID, if any
+
+**Returns:** Success message confirming adventure start
+
+**Example:**
+```python
+start_adventure(
+    title="The Lost Temple",
+    quest_id="QST67890"
+)
+```
+
+**Usage Notes:**
+- Adventures create a hierarchical structure in the transcript
+- Combat encounters within adventures are nested under the adventure node
+- Adventures can be nested within other adventures for complex story arcs
+- All interactions are recorded in the context of the current adventure until it's ended
+
+#### `end_adventure`
+Ends the current adventure and records the summary in the transcript. This restores the previous context (parent adventure or transcript root).
+
+**Parameters:**
+- `summary` (str, required): Summary of what happened during the adventure
+- `rewards` (list[str], optional): List of rewards obtained (items, XP, etc.)
+
+**Returns:** Success message with adventure title confirmation
+
+**Example:**
+```python
+end_adventure(
+    summary="The party explored an ancient temple and retrieved the Sacred Crown after defeating the temple guardian",
+    rewards=["Sacred Crown", "500 XP", "Ancient Scrolls"]
+)
+```
+
+**Usage Notes:**
+- The adventure summary is recorded in the transcript tree
+- After ending, new interactions will be added to the parent context
+- Rewards are tracked separately from the main adventure log
 
 ### Session Management
 
@@ -494,8 +556,10 @@ Retrieves events from the adventure log with filtering options.
 
 ### Transcript Management
 
+The transcript system uses a **hierarchical tree structure** to organize gameplay interactions. See [TranscriptTree](DATA_MODELS.md#transcripttree) in the data models documentation for details.
+
 #### `record_interaction`
-Records a player-game interaction in the transcript.
+Records a player-game interaction in the transcript. Interactions are automatically added to the current context (adventure, combat, or transcript root).
 
 **Parameters:**
 - `player_entry` (str, required): Text input by the player
@@ -504,6 +568,40 @@ Records a player-game interaction in the transcript.
 - `session_number` (int, optional): Session number (uses latest if None, ≥1)
 
 **Returns:** None (records interaction)
+
+**Usage Notes:**
+- Interactions are automatically nested within the current context
+- If inside an adventure, interactions are added to the adventure's actions
+- If inside combat, interactions are added to the combat's actions
+- If no adventure or combat is active, interactions are added to the transcript root
+- The current context is tracked via `current_parent_id` in the transcript tree
+
+**Example:**
+```python
+# Start an adventure
+start_adventure(title="The Lost Temple")
+
+# Record interaction - will be nested in the adventure
+record_interaction(
+    player_entry="We search for the temple entrance",
+    game_response="You find hidden stairs leading underground..."
+)
+
+# Start combat within the adventure
+start_combat(participants=[...])
+
+# Record combat interaction - will be nested in the combat node
+record_interaction(
+    player_entry="I attack the guardian",
+    game_response="Roll for attack: Natural 20! Critical hit!"
+)
+
+# End combat - returns to adventure context
+end_combat(result="victory", summary="Defeated the temple guardian")
+
+# End adventure - returns to transcript root
+end_adventure(summary="Retrieved the Sacred Crown")
+```
 
 ### Utility Tools
 
@@ -577,20 +675,51 @@ Returns all [Character](DATA_MODELS.md#character) objects for the currently acti
 **Returns:** List of complete [Character](DATA_MODELS.md#character) objects with full D&D 5e character sheets, or empty list if no current campaign
 
 ### `resource://transcripts/{campaign_name}/{session_number}`
-Returns transcript for a specific campaign session.
+Returns transcript tree for a specific campaign session.
 
 **Parameters:**
 - `campaign_name` (str): Campaign name
 - `session_number` (int): Session number
 
-**Returns:** [Transcript](DATA_MODELS.md#transcript) object with all interactions
+**Returns:** [TranscriptTree](DATA_MODELS.md#transcripttree) object with hierarchical structure of all interactions, combats, and adventures
+
+**Note:** Old flat transcripts are automatically migrated to the tree format when accessed.
 
 ### `resource://current_transcript`
-Returns transcript for the current campaign and latest session.
+Returns transcript tree for the current campaign and latest session.
 
 **Parameters:** None
 
-**Returns:** Current [Transcript](DATA_MODELS.md#transcript) object
+**Returns:** Current [TranscriptTree](DATA_MODELS.md#transcripttree) object with hierarchical structure
+
+**Example Response Structure:**
+```json
+{
+  "id": "TRS12345",
+  "node_type": "transcript",
+  "campaign": "Rise of the Dragon Lords",
+  "session_number": 5,
+  "children": [
+    {
+      "node_type": "interaction",
+      "user_text": "We enter the dragon's lair",
+      "responses": [...]
+    },
+    {
+      "node_type": "adventure",
+      "title": "The Lost Temple",
+      "actions": [
+        {
+          "node_type": "combat",
+          "participants": ["Party", "Guardian"],
+          "actions": [...]
+        }
+      ]
+    }
+  ],
+  "current_parent_id": "TRS12345"
+}
+```
 
 ### `resource://current_campaign/game_state`
 Returns the game state for the currently active campaign.
@@ -712,8 +841,12 @@ The server uses comprehensive Pydantic models for data validation:
 - **[`Spell`](DATA_MODELS.md#spell)**: Spell with level, school, components, and description
 - **[`CombatParticipant`](DATA_MODELS.md#combatparticipant)**: Combat stats for initiative tracking
 - **[`Attack`](DATA_MODELS.md#attack)**: Attack details with modifiers and damage
-- **[`TranscriptEntry`](DATA_MODELS.md#transcriptentry)**: Individual player-game interaction
-- **[`Transcript`](DATA_MODELS.md#transcript)**: Collection of interactions for a session
+- **[`Transcript`](DATA_MODELS.md#transcript-legacy)**: Collection of interactions for a session (legacy format)
+- **[`TranscriptEntry`](DATA_MODELS.md#transcriptentry-legacy)**: Individual player-game interaction (legacy format)
+- **[`TranscriptTree`](DATA_MODELS.md#transcripttree)**: Hierarchical transcript structure with nested adventures and combats
+- **[`TranscriptInteraction`](DATA_MODELS.md#transcriptinteraction)**: Single user-LLM exchange (leaf node)
+- **[`TranscriptCombat`](DATA_MODELS.md#transcriptcombat)**: Combat encounter with nested actions (interior node)
+- **[`TranscriptAdventure`](DATA_MODELS.md#transcriptadventure)**: Story arc with nested interactions and combats (interior node)
 
 ### Data Validation
 

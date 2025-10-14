@@ -29,8 +29,13 @@ This document provides comprehensive documentation for all data models used in t
    - [AdventureEvent](#adventureevent)
    - [EventType](#eventtype)
 7. [Transcript Models](#transcript-models)
-   - [Transcript](#transcript)
-   - [TranscriptEntry](#transcriptentry)
+   - [Transcript (Legacy)](#transcript-legacy)
+   - [TranscriptEntry (Legacy)](#transcriptentry-legacy)
+   - [TranscriptTree](#transcripttree)
+   - [TranscriptInteraction](#transcriptinteraction)
+   - [TranscriptCombat](#transcriptcombat)
+   - [TranscriptAdventure](#transcriptadventure)
+   - [Response Types](#response-types)
 8. [System Models](#system-models)
    - [GameStats](#gamestats)
 
@@ -644,7 +649,11 @@ Enumeration of event types for the adventure log.
 
 ## Transcript Models
 
-### Transcript
+The transcript system uses a **hierarchical tree structure** to organize gameplay interactions, allowing for nested story arcs, combat encounters, and adventures. This replaces the older flat transcript format.
+
+### Transcript (Legacy)
+
+**Note:** This is the old flat format, kept for backward compatibility. New transcripts use the [TranscriptTree](#transcripttree) format.
 
 Complete transcript of player-game interactions for a session.
 
@@ -654,7 +663,9 @@ Complete transcript of player-game interactions for a session.
 - `session_number` (int): Session number
 - `entries` (list[TranscriptEntry]): All interaction entries
 
-### TranscriptEntry
+### TranscriptEntry (Legacy)
+
+**Note:** This is the old flat format, kept for backward compatibility. New transcripts use [TranscriptInteraction](#transcriptinteraction).
 
 Individual player-game interaction entry.
 
@@ -664,15 +675,250 @@ Individual player-game interaction entry.
 - `player_entry` (str): Text input by the player
 - `game_response` (str): Response from the game/DM
 
+---
+
+### TranscriptTree
+
+**New tree-based format:** Root node of the transcript tree representing a complete session.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `node_type` (str): Always "transcript"
+- `campaign` (str): Associated campaign name
+- `session_number` (int): Session number
+- `children` (list[TranscriptInteraction | TranscriptCombat | TranscriptAdventure]): Top-level nodes in the session
+- `current_parent_id` (str | None): ID of the node where new interactions are currently being added
+- `characters_present` (list[str]): Characters present in this session
+- `tags` (list[str]): Optional tags for categorization
+- `notes` (str): Optional notes about the session
+
+**Structure:**
+```
+TranscriptTree (root)
+├── TranscriptInteraction (leaf)
+├── TranscriptCombat (interior node)
+│   ├── TranscriptInteraction (leaf)
+│   └── TranscriptInteraction (leaf)
+├── TranscriptAdventure (interior node)
+│   ├── TranscriptInteraction (leaf)
+│   ├── TranscriptCombat (interior node)
+│   │   └── TranscriptInteraction (leaf)
+│   └── TranscriptInteraction (leaf)
+└── TranscriptInteraction (leaf)
+```
+
 **Example:**
 ```json
 {
-  "transcript_id": "TRS12345",
-  "timestamp": "2024-01-15T19:30:00",
-  "player_entry": "I want to investigate the ancient altar",
-  "game_response": "As you approach the altar, you notice strange runes glowing faintly..."
+  "id": "TRS12345",
+  "node_type": "transcript",
+  "campaign": "Rise of the Dragon Lords",
+  "session_number": 5,
+  "children": [
+    {
+      "node_type": "interaction",
+      "user_text": "We enter the dragon's lair",
+      "responses": [{"type": "text", "content": "You see..."}]
+    },
+    {
+      "node_type": "combat",
+      "participants": ["Party", "Dragon"],
+      "result": "victory",
+      "summary": "Epic battle",
+      "actions": [...]
+    }
+  ],
+  "current_parent_id": "TRS12345",
+  "characters_present": ["Aragorn", "Legolas"]
 }
 ```
+
+### TranscriptInteraction
+
+**Leaf node:** Represents a single user-LLM exchange (a conversation turn).
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `node_type` (str): Always "interaction"
+- `user_text` (str): Text input by the user/player
+- `responses` (list[ResponseText | ResponseTools]): LLM responses (text or tool calls)
+- `character_speaking` (str | None): Which character is speaking (if applicable)
+- `importance` (int): Importance rating 1-5 (default: 3)
+- `tags` (list[str]): Optional tags for categorization
+- `notes` (str): Optional notes about this interaction
+
+**Example:**
+```json
+{
+  "id": "INT12345",
+  "node_type": "interaction",
+  "user_text": "I want to investigate the ancient altar",
+  "responses": [
+    {
+      "type": "text",
+      "content": "As you approach the altar, you notice strange runes glowing faintly..."
+    }
+  ],
+  "character_speaking": "Gandalf",
+  "importance": 4,
+  "tags": ["discovery", "magic"],
+  "notes": "This triggered the main quest"
+}
+```
+
+### TranscriptCombat
+
+**Interior node:** Represents a combat encounter with nested interaction actions.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `node_type` (str): Always "combat"
+- `participants` (list[str]): Names of all combatants
+- `result` (str): Combat outcome (e.g., "victory", "defeat", "fled")
+- `summary` (str): Brief summary of how the combat ended
+- `actions` (list[TranscriptInteraction]): Detailed turn-by-turn combat interactions
+- `location` (str | None): Where combat took place
+- `rounds` (int | None): Number of combat rounds
+- `casualties` (list[str]): Participants who died or were defeated
+- `tags` (list[str]): Optional tags for categorization
+- `notes` (str): Optional notes about this combat
+
+**Example:**
+```json
+{
+  "id": "CMB12345",
+  "node_type": "combat",
+  "participants": ["Aragorn", "Legolas", "Orc Chieftain", "Goblin x3"],
+  "result": "victory",
+  "summary": "The heroes defeated the orc raiding party after 3 rounds",
+  "actions": [
+    {
+      "node_type": "interaction",
+      "user_text": "Aragorn attacks the chieftain",
+      "responses": [{"type": "text", "content": "Roll for attack: 18! Hit! Roll damage..."}]
+    },
+    {
+      "node_type": "interaction",
+      "user_text": "Legolas shoots two arrows",
+      "responses": [{"type": "text", "content": "Both arrows find their mark..."}]
+    }
+  ],
+  "location": "Mountain Pass",
+  "rounds": 3,
+  "casualties": ["Orc Chieftain", "Goblin x3"],
+  "tags": ["combat", "encounter"],
+  "notes": "Party was ambushed while traveling"
+}
+```
+
+### TranscriptAdventure
+
+**Interior node:** Represents a story arc or quest with nested actions (interactions, combats, or sub-adventures).
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `node_type` (str): Always "adventure"
+- `title` (str | None): Adventure title (e.g., "The Temple of Doom")
+- `summary` (str): Summary of what happened during the adventure
+- `actions` (list[TranscriptInteraction | TranscriptCombat | TranscriptAdventure]): Nested story elements
+- `quest_id` (str | None): Associated quest ID if this adventure is part of a quest
+- `locations` (list[str]): Locations visited during this adventure
+- `npcs_met` (list[str]): NPCs encountered during this adventure
+- `rewards` (list[str]): Rewards obtained (items, XP, etc.)
+- `tags` (list[str]): Optional tags for categorization
+- `notes` (str): Optional notes about this adventure
+
+**Example:**
+```json
+{
+  "id": "ADV12345",
+  "node_type": "adventure",
+  "title": "The Lost Temple",
+  "summary": "The party explored an ancient temple and retrieved the Sacred Crown",
+  "actions": [
+    {
+      "node_type": "interaction",
+      "user_text": "We search for the temple entrance",
+      "responses": [{"type": "text", "content": "You find hidden stairs..."}]
+    },
+    {
+      "node_type": "combat",
+      "participants": ["Party", "Temple Guardian"],
+      "result": "victory",
+      "summary": "Defeated the guardian",
+      "actions": [...]
+    },
+    {
+      "node_type": "interaction",
+      "user_text": "We take the crown from the altar",
+      "responses": [{"type": "text", "content": "As you lift the crown..."}]
+    }
+  ],
+  "quest_id": "QST67890",
+  "locations": ["Ancient Temple", "Temple Inner Chamber"],
+  "npcs_met": ["Temple Guardian Spirit"],
+  "rewards": ["Sacred Crown", "500 XP"],
+  "tags": ["main quest", "exploration"],
+  "notes": "This completed the first major quest arc"
+}
+```
+
+### Response Types
+
+Interactions can have different types of responses from the LLM:
+
+#### ResponseText
+
+Standard text response from the LLM.
+
+**Fields:**
+- `type` (str): Always "text"
+- `content` (str): The response text
+
+**Example:**
+```json
+{
+  "type": "text",
+  "content": "You find a hidden door behind the bookshelf"
+}
+```
+
+#### ResponseTools
+
+Tool call response when the LLM used tools.
+
+**Fields:**
+- `type` (str): Always "tools"
+- `calls` (list[InteractionToolCall]): List of tool calls made
+
+#### InteractionToolCall
+
+Details of a single tool call.
+
+**Fields:**
+- `name` (str): Tool name that was called
+- `id` (str): Unique call ID
+- `input` (dict): Tool input parameters
+- `response` (str): Tool response/output
+
+**Example:**
+```json
+{
+  "type": "tools",
+  "calls": [
+    {
+      "name": "roll_dice",
+      "id": "call_123",
+      "input": {"dice_notation": "1d20+5"},
+      "response": "🎲 1d20+5 [18] +5 = 23"
+    }
+  ]
+}
+```
+
+---
+
+**Migration Note:** Old transcripts using the flat `Transcript` and `TranscriptEntry` format are automatically migrated to the new `TranscriptTree` format when loaded. A backup of the original file is created with a `.old` extension.
 
 ---
 

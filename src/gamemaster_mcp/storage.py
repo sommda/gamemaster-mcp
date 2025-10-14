@@ -21,6 +21,13 @@ from .models import (
     SessionNote,
     Transcript,
     TranscriptEntry,
+    # New transcript tree models
+    TranscriptTree,
+    TranscriptInteraction,
+    TranscriptCombat,
+    TranscriptAdventure,
+    ResponseText,
+    ResponseTools,
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -52,6 +59,11 @@ class DnDStorage:
 
         self._current_campaign: Campaign | None = None
         self._events: list[AdventureEvent] = []
+
+        # Track current parent node for transcript tree manipulation
+        self._transcript_current_parent: dict[str, str] = {}  # campaign -> parent_node_id
+        # Track parent stack for nested structures (combat within adventure, etc.)
+        self._parent_stack: dict[str, list[str]] = {}  # campaign -> list of parent IDs
 
         # Load existing data
         logger.debug("📂 Loading initial data...")
@@ -148,32 +160,424 @@ class DnDStorage:
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading events: {e}")
 
-    def _load_transcript(self, campaign_name: str, session_number: int) -> Transcript | None:
+    def _load_transcript(self, campaign_name: str, session_number: int) -> TranscriptTree | None:
+        """Load a transcript, migrating from old format if necessary."""
         transcript_file = self._get_transcript_file(campaign_name, session_number)
         if not transcript_file.exists():
             return None
+
         try:
             with open(transcript_file, "r", encoding="utf-8") as f:
                 transcript_data = json.load(f)
-                transcript = Transcript.model_validate(transcript_data)
+
+            # Detect format: old format has 'entries', new format has 'children'
+            if "entries" in transcript_data:
+                logger.info(f"🔄 Migrating old transcript format to new tree format...")
+
+                # Create backup
+                backup_file = transcript_file.with_suffix(".json.old")
+                import shutil
+                shutil.copy2(transcript_file, backup_file)
+                logger.info(f"💾 Created backup at {backup_file}")
+
+                # Migrate: convert each old entry to TranscriptInteraction
+                children = []
+                for entry in transcript_data.get("entries", []):
+                    interaction = TranscriptInteraction(
+                        user_text=entry.get("player_entry", ""),
+                        responses=[ResponseText(content=entry.get("game_response", ""))]
+                    )
+                    children.append(interaction)
+
+                # Create new TranscriptTree
+                transcript = TranscriptTree(
+                    campaign=transcript_data["campaign"],
+                    session_number=transcript_data["session_number"],
+                    children=children,
+                    current_parent_id=None
+                )
+
+                # Save in new format
+                self._save_transcript(transcript)
+                logger.info(f"✅ Migration complete. Transcript now uses tree format.")
+                return transcript
+
+            else:
+                # New format - load as TranscriptTree
+                transcript = TranscriptTree.model_validate(transcript_data)
                 logger.info(
                     f"✅ Successfully loaded transcript for {campaign_name}, session {session_number}"
                 )
+
+                # Restore current parent from transcript metadata
+                if transcript.current_parent_id:
+                    self._transcript_current_parent[campaign_name] = transcript.current_parent_id
+                else:
+                    # Default to transcript root
+                    self._transcript_current_parent[campaign_name] = transcript.id
+
                 return transcript
+
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"❌ Error loading transcript: {e}")
             return None
 
-    def _save_transcript(self, transcript: Transcript) -> None:
+    def _save_transcript(self, transcript: TranscriptTree) -> None:
+        """Save a transcript tree to disk."""
         transcript_dir = self._get_transcript_dir(transcript.campaign)
-        transcript_dir.mkdir(exist_ok=True)
+        transcript_dir.mkdir(parents=True, exist_ok=True)
         transcript_file = self._get_transcript_file(transcript.campaign, transcript.session_number)
 
+        # Update current_parent_id in transcript before saving
+        current_parent = self._transcript_current_parent.get(transcript.campaign)
+        if current_parent:
+            transcript.current_parent_id = current_parent
+
         # Write transcript to the file
-        transcript_data = transcript.model_dump(mode="python")
+        transcript_data = transcript.model_dump(mode="json")
         with open(transcript_file, "w", encoding="utf-8") as f:
             json.dump(transcript_data, f, default=str, indent=4)
         logger.debug("✅ Transcript saved successfully.")
+
+    # Current Parent Tracking
+    def get_current_parent_id(self, campaign_name: str) -> str | None:
+        """Get the current parent node ID for a campaign."""
+        return self._transcript_current_parent.get(campaign_name)
+
+    def set_current_parent_id(self, campaign_name: str, node_id: str) -> None:
+        """Set the current parent node ID for a campaign."""
+        self._transcript_current_parent[campaign_name] = node_id
+        logger.debug(f"📍 Set current parent for '{campaign_name}' to node {node_id}")
+
+    def _find_node_in_tree(
+        self, node: TranscriptTree | TranscriptCombat | TranscriptAdventure, target_id: str
+    ) -> TranscriptTree | TranscriptCombat | TranscriptAdventure | None:
+        """Recursively find a node by ID in the tree."""
+        if node.id == target_id:
+            return node
+
+        # Check children/actions depending on node type
+        children = []
+        if isinstance(node, TranscriptTree):
+            children = node.children
+        elif isinstance(node, (TranscriptCombat, TranscriptAdventure)):
+            children = node.actions
+
+        for child in children:
+            if child.id == target_id:
+                return child
+            # Recursively search in combat and adventure nodes
+            if isinstance(child, (TranscriptCombat, TranscriptAdventure)):
+                result = self._find_node_in_tree(child, target_id)
+                if result:
+                    return result
+
+        return None
+
+    # Transcript Tree Manipulation
+    def add_transcript_interaction(
+        self,
+        user_text: str,
+        responses: list[dict],
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptInteraction:
+        """Add an interaction to the current parent node."""
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load or create transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            transcript = TranscriptTree(
+                campaign=campaign_name,
+                session_number=session_number,
+                children=[]
+            )
+            # Set transcript root as current parent
+            self.set_current_parent_id(campaign_name, transcript.id)
+
+        # Convert response dicts to proper response objects
+        response_objects = []
+        for resp in responses:
+            if resp["type"] == "text":
+                response_objects.append(ResponseText(content=resp["content"]))
+            elif resp["type"] == "tools":
+                # Convert tool calls
+                from .models import InteractionToolCall
+                tool_calls = []
+                for call in resp.get("calls", []):
+                    tool_calls.append(InteractionToolCall(
+                        name=call["name"],
+                        id=call["id"],
+                        input=call["input"],
+                        response=call.get("response", "")
+                    ))
+                response_objects.append(ResponseTools(calls=tool_calls))
+
+        # Create interaction
+        interaction = TranscriptInteraction(
+            user_text=user_text,
+            responses=response_objects
+        )
+
+        # Find current parent and add interaction
+        current_parent_id = self.get_current_parent_id(campaign_name)
+        if not current_parent_id or current_parent_id == transcript.id:
+            # Add to transcript root
+            transcript.children.append(interaction)
+        else:
+            # Find parent node and add to its actions
+            parent_node = self._find_node_in_tree(transcript, current_parent_id)
+            if parent_node and isinstance(parent_node, (TranscriptCombat, TranscriptAdventure)):
+                parent_node.actions.append(interaction)
+            else:
+                # Fallback to root if parent not found
+                logger.warning(f"⚠️ Parent node {current_parent_id} not found, adding to root")
+                transcript.children.append(interaction)
+
+        self._save_transcript(transcript)
+        logger.info(f"✅ Added interaction to transcript")
+        return interaction
+
+    def start_transcript_combat(
+        self,
+        participants: list[str],
+        location: str | None = None,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptCombat:
+        """Start a combat encounter, creating a Combat node and setting it as current parent."""
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load or create transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            transcript = TranscriptTree(
+                campaign=campaign_name,
+                session_number=session_number,
+                children=[]
+            )
+            self.set_current_parent_id(campaign_name, transcript.id)
+
+        # Create combat node (summary and result will be set when ending combat)
+        combat = TranscriptCombat(
+            participants=participants,
+            result="",  # Will be set when ending
+            summary="",  # Will be set when ending
+            actions=[],
+            location=location
+        )
+
+        # Add combat to current parent
+        current_parent_id = self.get_current_parent_id(campaign_name)
+        if not current_parent_id or current_parent_id == transcript.id:
+            # Add to transcript root
+            transcript.children.append(combat)
+        else:
+            # Find parent node and add to its actions
+            parent_node = self._find_node_in_tree(transcript, current_parent_id)
+            if parent_node and isinstance(parent_node, TranscriptAdventure):
+                parent_node.actions.append(combat)
+            else:
+                # Fallback to root
+                logger.warning(f"⚠️ Parent node {current_parent_id} not found, adding to root")
+                transcript.children.append(combat)
+
+        # Push current parent onto stack and set combat as new current parent
+        if campaign_name not in self._parent_stack:
+            self._parent_stack[campaign_name] = []
+        self._parent_stack[campaign_name].append(current_parent_id)
+        self.set_current_parent_id(campaign_name, combat.id)
+
+        self._save_transcript(transcript)
+        logger.info(f"✅ Started combat with participants: {participants}")
+        return combat
+
+    def end_transcript_combat(
+        self,
+        result: str,
+        summary: str,
+        casualties: list[str] | None = None,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptCombat:
+        """End a combat encounter, setting result/summary and restoring previous parent."""
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            raise ValueError("No transcript found")
+
+        # Find combat node
+        current_parent_id = self.get_current_parent_id(campaign_name)
+        if not current_parent_id:
+            raise ValueError("No current parent set")
+
+        combat_node = self._find_node_in_tree(transcript, current_parent_id)
+        if not combat_node or not isinstance(combat_node, TranscriptCombat):
+            raise ValueError("Current parent is not a combat node")
+
+        # Update combat with results
+        combat_node.result = result
+        combat_node.summary = summary
+        if casualties:
+            combat_node.casualties = casualties
+        combat_node.rounds = len([a for a in combat_node.actions if isinstance(a, TranscriptInteraction)])
+
+        # Pop previous parent from stack and restore
+        if campaign_name in self._parent_stack and self._parent_stack[campaign_name]:
+            previous_parent = self._parent_stack[campaign_name].pop()
+        else:
+            previous_parent = transcript.id
+        self.set_current_parent_id(campaign_name, previous_parent)
+
+        self._save_transcript(transcript)
+        logger.info(f"✅ Ended combat with result: {result}")
+        return combat_node
+
+    def start_transcript_adventure(
+        self,
+        title: str,
+        quest_id: str | None = None,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptAdventure:
+        """Start an adventure, creating an Adventure node and setting it as current parent."""
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load or create transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            transcript = TranscriptTree(
+                campaign=campaign_name,
+                session_number=session_number,
+                children=[]
+            )
+            self.set_current_parent_id(campaign_name, transcript.id)
+
+        # Create adventure node (summary will be set when ending)
+        adventure = TranscriptAdventure(
+            title=title,
+            summary="",  # Will be set when ending
+            actions=[],
+            quest_id=quest_id
+        )
+
+        # Add adventure to current parent
+        current_parent_id = self.get_current_parent_id(campaign_name)
+        if not current_parent_id or current_parent_id == transcript.id:
+            # Add to transcript root
+            transcript.children.append(adventure)
+        else:
+            # Find parent node and add to its actions
+            parent_node = self._find_node_in_tree(transcript, current_parent_id)
+            if parent_node and isinstance(parent_node, TranscriptAdventure):
+                parent_node.actions.append(adventure)
+            else:
+                # Fallback to root
+                logger.warning(f"⚠️ Parent node {current_parent_id} not found, adding to root")
+                transcript.children.append(adventure)
+
+        # Push current parent onto stack and set adventure as new current parent
+        if campaign_name not in self._parent_stack:
+            self._parent_stack[campaign_name] = []
+        self._parent_stack[campaign_name].append(current_parent_id)
+        self.set_current_parent_id(campaign_name, adventure.id)
+
+        self._save_transcript(transcript)
+        logger.info(f"✅ Started adventure: {title}")
+        return adventure
+
+    def end_transcript_adventure(
+        self,
+        summary: str,
+        rewards: list[str] | None = None,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptAdventure:
+        """End an adventure, setting summary and restoring previous parent."""
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            raise ValueError("No transcript found")
+
+        # Find adventure node
+        current_parent_id = self.get_current_parent_id(campaign_name)
+        if not current_parent_id:
+            raise ValueError("No current parent set")
+
+        adventure_node = self._find_node_in_tree(transcript, current_parent_id)
+        if not adventure_node or not isinstance(adventure_node, TranscriptAdventure):
+            raise ValueError("Current parent is not an adventure node")
+
+        # Update adventure with summary
+        adventure_node.summary = summary
+        if rewards:
+            adventure_node.rewards = rewards
+
+        # Pop previous parent from stack and restore
+        if campaign_name in self._parent_stack and self._parent_stack[campaign_name]:
+            previous_parent = self._parent_stack[campaign_name].pop()
+        else:
+            previous_parent = transcript.id
+        self.set_current_parent_id(campaign_name, previous_parent)
+
+        self._save_transcript(transcript)
+        logger.info(f"✅ Ended adventure: {adventure_node.title}")
+        return adventure_node
 
     # Campaign Management
     def create_campaign(
@@ -528,17 +932,18 @@ class DnDStorage:
             if query_lower in event.title.lower() or query_lower in event.description.lower()
         ]
 
-    # Transcripts
+    # Transcripts (backward compatibility methods)
     def get_transcript(
         self, campaign_name: str | None = None, session_number: int | None = None
-    ) -> Transcript:
+    ) -> TranscriptTree | None:
+        """Get a transcript tree. Now returns TranscriptTree (new format)."""
         if campaign_name is None:
             campaign = self.get_current_campaign()
         else:
             campaign = self.get_campaign(campaign_name)
 
         if session_number is None:
-            session_number = len(campaign.sessions)
+            session_number = campaign.game_state.current_session if campaign and campaign.game_state else 1
 
         return self._load_transcript(campaign.name, session_number)
 
@@ -548,25 +953,31 @@ class DnDStorage:
         game_response: str,
         campaign_name: str | None = None,
         session_number: int | None = None,
-    ) -> Transcript:
+    ) -> TranscriptTree:
+        """Add a transcript entry. Now uses new TranscriptTree format internally."""
         if campaign_name is None:
             campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
         else:
             campaign = self.get_campaign(campaign_name)
+            campaign_name = campaign.name
 
         if session_number is None:
-            session_number = len(campaign.sessions)
+            campaign_obj = self.get_current_campaign()
+            session_number = campaign_obj.game_state.current_session if campaign_obj else 0
 
-        transcript = self.get_transcript(campaign_name, session_number)
-        if transcript is None:
-            transcript = Transcript(
-                campaign=campaign.name, session_number=session_number, entries=[]
-            )
-
-        transcript.entries.append(
-            TranscriptEntry(
-                transcript_id=transcript.id, player_entry=player_entry, game_response=game_response
-            )
+        # Add the interaction using new API
+        self.add_transcript_interaction(
+            user_text=player_entry,
+            responses=[{"type": "text", "content": game_response}],
+            campaign_name=campaign_name,
+            session_number=session_number
         )
-        self._save_transcript(transcript)
+
+        # Return the updated transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            raise ValueError("Failed to load transcript after adding entry")
         return transcript

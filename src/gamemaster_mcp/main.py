@@ -1012,10 +1012,54 @@ def start_combat(
 
 
 @tool_with_logging(mcp, tags=["mode:combat"])
-def end_combat() -> str:
-    """End the current combat encounter."""
+def end_combat(
+    result: Annotated[str, Field(description="Combat result (e.g., 'victory', 'defeat', 'fled')")],
+    summary: Annotated[str, Field(description="Brief summary of how the combat ended")],
+    casualties: Annotated[
+        list[str] | None, Field(description="List of participants who died or were defeated")
+    ] = None,
+) -> str:
+    """End the current combat encounter and record it in the transcript."""
+    # Update game state
     storage.update_game_state(in_combat=False, initiative_order=[], current_turn=None)
-    return "Combat ended."
+
+    # End combat in transcript
+    try:
+        storage.end_transcript_combat(
+            result=result,
+            summary=summary,
+            casualties=casualties
+        )
+        return f"Combat ended with result: {result}. Recorded in transcript."
+    except Exception as e:
+        # If transcript combat doesn't exist, just end combat in game state
+        return f"Combat ended. (Note: {str(e)})"
+
+
+# Adventure Management Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def start_adventure(
+    title: Annotated[str, Field(description="Adventure title (e.g., 'The Temple of Doom')")],
+    quest_id: Annotated[str | None, Field(description="Associated quest ID, if any")] = None,
+) -> str:
+    """Start an adventure and begin recording interactions in the transcript as part of this adventure."""
+    adventure = storage.start_transcript_adventure(title=title, quest_id=quest_id)
+    return f"📖 Started adventure: '{adventure.title}'. All interactions will be recorded as part of this adventure."
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def end_adventure(
+    summary: Annotated[str, Field(description="Summary of what happened during the adventure")],
+    rewards: Annotated[
+        list[str] | None, Field(description="List of rewards obtained (items, XP, etc.)")
+    ] = None,
+) -> str:
+    """End the current adventure and record the summary in the transcript."""
+    try:
+        adventure_node = storage.end_transcript_adventure(summary=summary, rewards=rewards)
+        return f"✅ Ended adventure: '{adventure_node.title}'. Summary recorded in transcript."
+    except Exception as e:
+        return f"❌ Error ending adventure: {str(e)}"
 
 
 @tool_with_logging(mcp, tags=["mode:combat"])
