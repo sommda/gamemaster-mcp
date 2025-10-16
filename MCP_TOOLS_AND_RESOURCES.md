@@ -559,7 +559,7 @@ Retrieves events from the adventure log with filtering options.
 The transcript system uses a **hierarchical tree structure** to organize gameplay interactions. See [TranscriptTree](DATA_MODELS.md#transcripttree) in the data models documentation for details.
 
 #### `record_interaction`
-Records a player-game interaction in the transcript. Interactions are automatically added to the current context (adventure, combat, or transcript root).
+Records a player-game interaction in the transcript with a simple text response. Interactions are automatically added to the current context (adventure, combat, or transcript root).
 
 **Parameters:**
 - `player_entry` (str, required): Text input by the player
@@ -575,6 +575,7 @@ Records a player-game interaction in the transcript. Interactions are automatica
 - If inside combat, interactions are added to the combat's actions
 - If no adventure or combat is active, interactions are added to the transcript root
 - The current context is tracked via `current_parent_id` in the transcript tree
+- For interactions where the LLM made tool calls, use `record_interaction_with_tools` instead
 
 **Example:**
 ```python
@@ -602,6 +603,86 @@ end_combat(result="victory", summary="Defeated the temple guardian")
 # End adventure - returns to transcript root
 end_adventure(summary="Retrieved the Sacred Crown")
 ```
+
+#### `record_interaction_with_tools`
+Records a player-game interaction that includes tool calls in the transcript. This function supports recording interactions where the LLM's response included both text and tool calls, preserving the complete context of how the game responded to the player.
+
+**Parameters:**
+- `player_entry` (str, required): Text input by the player
+- `game_responses` (list[str | list[dict]], required): List of responses where each entry is either:
+  - A string (text response)
+  - A list of dicts (tool calls), where each dict has:
+    - `tool_name` (str): Name of the tool called
+    - `tool_id` (str): Unique ID for the tool call
+    - `tool_parameters` (dict): Parameters passed to the tool
+    - `tool_result` (str): Result returned by the tool
+- `campaign_name` (str, optional): Campaign name (uses current if None)
+- `session_number` (int, optional): Session number (uses latest if None, ≥1)
+
+**Returns:** Success message with count of responses recorded
+
+**Usage Notes:**
+- Use this tool instead of `record_interaction` when the LLM's response included tool calls
+- Supports mixed responses - text and tool calls can be interleaved
+- Tool calls are recorded with their complete context (input parameters and results)
+- Like `record_interaction`, interactions are nested in the current context (adventure/combat/root)
+- This preserves the full interaction history including how tools were used
+
+**Example:**
+```python
+# Record an interaction with tool calls
+record_interaction_with_tools(
+    player_entry="I attack the goblin with my sword",
+    game_responses=[
+        "Let me roll for your attack...",
+        [
+            {
+                "tool_name": "roll_dice",
+                "tool_id": "call_123",
+                "tool_parameters": {"dice_notation": "1d20+5"},
+                "tool_result": "🎲 1d20+5 [18] +5 = 23"
+            }
+        ],
+        "You hit! Now rolling for damage...",
+        [
+            {
+                "tool_name": "roll_dice",
+                "tool_id": "call_124",
+                "tool_parameters": {"dice_notation": "1d8+3"},
+                "tool_result": "🎲 1d8+3 [6] +3 = 9"
+            },
+            {
+                "tool_name": "update_character",
+                "tool_id": "call_125",
+                "tool_parameters": {"name_or_id": "Goblin", "hit_points_current": 0},
+                "tool_result": "Updated Goblin: hit points current: 0"
+            }
+        ],
+        "Your blade strikes true, dealing 9 damage! The goblin falls defeated."
+    ]
+)
+# Result: "Recorded interaction with 4 response(s) to transcript"
+```
+
+**Comparison with `record_interaction`:**
+- `record_interaction`: Simple text-only responses
+  ```python
+  record_interaction(
+      player_entry="What do you see?",
+      game_response="You see a large stone door"
+  )
+  ```
+- `record_interaction_with_tools`: Complex responses with tool calls
+  ```python
+  record_interaction_with_tools(
+      player_entry="I attack!",
+      game_responses=[
+          "Rolling attack...",
+          [{"tool_name": "roll_dice", ...}],
+          "You hit!"
+      ]
+  )
+  ```
 
 ### Utility Tools
 

@@ -51,6 +51,7 @@ from gamemaster_mcp.main import (
     next_turn,
     override_storage,
     record_interaction,
+    record_interaction_with_tools,
     roll_dice,
     set_mode,
     start_combat,
@@ -753,6 +754,149 @@ class TestAPI:
         )
         # record_interaction returns None, so we just check it doesn't crash
         assert results is None or len(results) == 0
+
+    async def test_record_interaction_with_tools_text_only(self, storage_with_campaign):
+        """Test recording interaction with only text responses."""
+        override_storage(storage_with_campaign)
+        results = await record_interaction_with_tools.run(
+            {
+                "player_entry": "What's in the room?",
+                "game_responses": [
+                    "You see a large stone table in the center.",
+                    "There are ancient runes carved into the walls."
+                ],
+            }
+        )
+        assert len(results) == 1
+        assert "Recorded interaction with 2 response(s)" in results[0].text
+
+    async def test_record_interaction_with_tools_tool_calls_only(self, storage_with_campaign):
+        """Test recording interaction with only tool call responses."""
+        override_storage(storage_with_campaign)
+        results = await record_interaction_with_tools.run(
+            {
+                "player_entry": "I search for treasure",
+                "game_responses": [
+                    [
+                        {
+                            "tool_name": "roll_dice",
+                            "tool_id": "call_123",
+                            "tool_parameters": {"dice_notation": "1d20"},
+                            "tool_result": "15"
+                        },
+                        {
+                            "tool_name": "add_item_to_character",
+                            "tool_id": "call_124",
+                            "tool_parameters": {"character_name_or_id": "Hero", "item_name": "Gold Coin", "quantity": 10},
+                            "tool_result": "Added 10x Gold Coin to Hero's inventory"
+                        }
+                    ]
+                ],
+            }
+        )
+        assert len(results) == 1
+        assert "Recorded interaction with 1 response(s)" in results[0].text
+
+    async def test_record_interaction_with_tools_mixed_responses(self, storage_with_campaign):
+        """Test recording interaction with mixed text and tool call responses."""
+        override_storage(storage_with_campaign)
+        results = await record_interaction_with_tools.run(
+            {
+                "player_entry": "I attack the goblin",
+                "game_responses": [
+                    "You draw your sword and charge!",
+                    [
+                        {
+                            "tool_name": "roll_dice",
+                            "tool_id": "call_456",
+                            "tool_parameters": {"dice_notation": "1d20+5"},
+                            "tool_result": "23 (natural 18 + 5)"
+                        }
+                    ],
+                    "Your blade strikes true! The goblin falls.",
+                    [
+                        {
+                            "tool_name": "update_character",
+                            "tool_id": "call_457",
+                            "tool_parameters": {"name_or_id": "Hero", "hit_points_current": 20},
+                            "tool_result": "Updated Hero: hit points current: 20"
+                        }
+                    ]
+                ],
+            }
+        )
+        assert len(results) == 1
+        assert "Recorded interaction with 4 response(s)" in results[0].text
+
+    async def test_record_interaction_with_tools_with_session(self, storage_with_campaign):
+        """Test recording interaction with explicit session number."""
+        override_storage(storage_with_campaign)
+        results = await record_interaction_with_tools.run(
+            {
+                "player_entry": "Let's begin session 5",
+                "game_responses": ["Welcome to session 5!"],
+                "session_number": 5,
+            }
+        )
+        assert len(results) == 1
+        assert "Recorded interaction with 1 response(s)" in results[0].text
+
+    async def test_record_interaction_with_tools_verify_transcript_structure(self, storage_with_campaign):
+        """Test that recorded interaction has correct structure in transcript."""
+        override_storage(storage_with_campaign)
+
+        # Record an interaction with mixed responses
+        await record_interaction_with_tools.run(
+            {
+                "player_entry": "I cast fireball",
+                "game_responses": [
+                    "You begin casting...",
+                    [
+                        {
+                            "tool_name": "roll_dice",
+                            "tool_id": "call_789",
+                            "tool_parameters": {"dice_notation": "8d6"},
+                            "tool_result": "28"
+                        }
+                    ],
+                    "The fireball explodes dealing 28 damage!"
+                ],
+                "session_number": 1,
+            }
+        )
+
+        # Get the transcript and verify structure
+        campaign_name = storage_with_campaign.get_current_campaign().name
+        transcript = await get_transcript.read(
+            {"campaign_name": campaign_name, "session_number": 1}
+        )
+
+        # Find the interaction we just added
+        assert len(transcript.children) >= 1
+        latest_interaction = transcript.children[-1]
+
+        # Verify it has the correct player entry
+        assert latest_interaction.user_text == "I cast fireball"
+
+        # Verify it has 3 responses
+        assert len(latest_interaction.responses) == 3
+
+        # Verify first response is text
+        from gamemaster_mcp.models import ResponseText
+        assert isinstance(latest_interaction.responses[0], ResponseText)
+        assert latest_interaction.responses[0].content == "You begin casting..."
+
+        # Verify second response is tool calls
+        from gamemaster_mcp.models import ResponseTools
+        assert isinstance(latest_interaction.responses[1], ResponseTools)
+        assert len(latest_interaction.responses[1].calls) == 1
+        assert latest_interaction.responses[1].calls[0].name == "roll_dice"
+        assert latest_interaction.responses[1].calls[0].id == "call_789"
+        assert latest_interaction.responses[1].calls[0].response == "28"
+
+        # Verify third response is text
+        assert isinstance(latest_interaction.responses[2], ResponseText)
+        assert latest_interaction.responses[2].content == "The fireball explodes dealing 28 damage!"
 
     async def test_get_transcript_resource(self, storage_with_campaign):
         """Test getting transcript as resource."""

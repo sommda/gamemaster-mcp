@@ -1325,6 +1325,93 @@ def record_interaction(
     storage.add_transcript_entry(player_entry, game_response, campaign_name, session_number)
 
 
+@tool_with_logging(mcp)
+def record_interaction_with_tools(
+    player_entry: Annotated[str, Field(description="Text input by the player")],
+    game_responses: Annotated[
+        list[str | list[dict[str, Any]]],
+        Field(description="List of responses. Each entry is either a text string or a list of tool call dicts. Tool call dicts have: tool_name (str), tool_id (str), tool_parameters (dict), tool_result (str)")
+    ],
+    campaign_name: Annotated[
+        str | None,
+        Field(description="Name of campaign to which this interaction applies, or none to use the current campaign")
+    ] = None,
+    session_number: Annotated[
+        int | None,
+        Field(description="Session number to which this interaction applies, or none to use the latest session", ge=1)
+    ] = None,
+) -> str:
+    """Record a player-game interaction with tool calls in the transcript.
+
+    This function supports recording interactions that include both text responses and tool calls.
+    Use this instead of record_interaction when the LLM's response included tool calls.
+
+    Args:
+        player_entry: Text input by the player
+        game_responses: List where each entry is either:
+            - A string (text response)
+            - A list of dicts (tool calls), where each dict has:
+                - tool_name (str): Name of the tool called
+                - tool_id (str): Unique ID for the tool call
+                - tool_parameters (dict): Parameters passed to the tool
+                - tool_result (str): Result returned by the tool
+        campaign_name: Optional campaign name (uses current if None)
+        session_number: Optional session number (uses latest if None)
+
+    Example:
+        record_interaction_with_tools(
+            player_entry="I attack the goblin",
+            game_responses=[
+                "Let me roll for your attack...",
+                [
+                    {
+                        "tool_name": "roll_dice",
+                        "tool_id": "call_123",
+                        "tool_parameters": {"dice_notation": "1d20+5"},
+                        "tool_result": "🎲 1d20+5 [18] +5 = 23"
+                    }
+                ],
+                "You hit! Roll for damage..."
+            ]
+        )
+    """
+    # Convert the responses into the format expected by storage layer (list of dicts)
+    responses = []
+    for response in game_responses:
+        if isinstance(response, str):
+            # Text response
+            responses.append({
+                "type": "text",
+                "content": response
+            })
+        elif isinstance(response, list):
+            # Tool calls
+            tool_calls = []
+            for tool_call in response:
+                tool_calls.append({
+                    "name": tool_call["tool_name"],
+                    "id": tool_call["tool_id"],
+                    "input": tool_call["tool_parameters"],
+                    "response": tool_call["tool_result"]
+                })
+            responses.append({
+                "type": "tools",
+                "calls": tool_calls
+            })
+        else:
+            raise ValueError(f"Invalid response type: {type(response)}. Must be str or list[dict]")
+
+    # Add to transcript using the storage layer
+    storage.add_transcript_interaction(
+        user_text=player_entry,
+        responses=responses,
+        campaign_name=campaign_name,
+        session_number=session_number
+    )
+
+    return f"Recorded interaction with {len(responses)} response(s) to transcript"
+
+
 @mcp.resource("resource://transcripts/{campaign_name}/{session_number}")
 def get_transcript(campaign_name: str, session_number: int) -> Transcript:
     return storage.get_transcript(campaign_name, session_number)
