@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CLI entry point for the D&D MCP Server (FastMCP 2.8.0+ compatible).
+CLI entry point for the D&D MCP Server (FastMCP 2.12+ compatible).
 """
 
 from gamemaster_mcp.main import main

@@ -74,7 +74,7 @@ class TestAPI:
     async def test_create_campaign(self, temp_storage, sample_campaign):
         """Test creating a new campaign."""
         override_storage(temp_storage)
-        results = await create_campaign.run(
+        result = await create_campaign.run(
             {
                 "name": sample_campaign.name,
                 "description": sample_campaign.description,
@@ -82,32 +82,32 @@ class TestAPI:
                 "setting": sample_campaign.setting,
             }
         )
-        assert len(results) == 1
-        assert sample_campaign.name in results[0].text
+        assert len(result.content) == 1
+        assert sample_campaign.name in result.content[0].text
 
     async def test_get_campaign_info(self, storage_with_campaign):
         """Test grabbing basic campaign info."""
         override_storage(storage_with_campaign)
-        results = await get_campaign_info.run({})
-        assert len(results) == 1
-        print(results[0].text)
-        assert storage_with_campaign.get_current_campaign().name in results[0].text
+        result = await get_campaign_info.run({})
+        assert len(result.content) == 1
+        print(result.content[0].text)
+        assert storage_with_campaign.get_current_campaign().name in result.content[0].text
 
     async def test_list_campaigns(self, storage_with_campaign):
         """Test listing campaigns."""
         override_storage(storage_with_campaign)
-        results = await list_campaigns.run({})
-        assert len(results) == 1
-        print(results[0].text)
-        assert storage_with_campaign.get_current_campaign().name in results[0].text
+        result = await list_campaigns.run({})
+        assert len(result.content) == 1
+        print(result.content[0].text)
+        assert storage_with_campaign.get_current_campaign().name in result.content[0].text
 
     async def test_load_campaign(self, storage_with_campaign):
         """Test loading a current campaigns."""
         override_storage(storage_with_campaign)
         name = storage_with_campaign.get_current_campaign().name
-        results = await load_campaign.run({"name": name})
-        assert len(results) == 1
-        assert name in results[0].text
+        result = await load_campaign.run({"name": name})
+        assert len(result.content) == 1
+        assert name in result.content[0].text
 
     async def test_get_campaign(self, storage_with_campaign):
         """Test loading a campaign as a resource."""
@@ -137,7 +137,7 @@ class TestAPI:
     async def test_create_character(self, storage_with_campaign):
         """Test creating a new character."""
         override_storage(storage_with_campaign)
-        results = await create_character.run(
+        result = await create_character.run(
             {
                 "name": "Aragorn",
                 "character_class": "Ranger",
@@ -152,9 +152,9 @@ class TestAPI:
                 "charisma": 11,
             }
         )
-        assert len(results) == 1
-        assert "Aragorn" in results[0].text
-        assert "Level 5 Human Ranger" in results[0].text
+        assert len(result.content) == 1
+        assert "Aragorn" in result.content[0].text
+        assert "Level 5 Human Ranger" in result.content[0].text
 
     async def test_get_character(self, storage_with_campaign):
         """Test getting character information."""
@@ -164,10 +164,10 @@ class TestAPI:
             {"name": "Legolas", "character_class": "Fighter", "class_level": 3, "race": "Elf"}
         )
 
-        results = await get_character.run({"name_or_id": "Legolas"})
-        assert len(results) == 1
-        assert "Legolas" in results[0].text
-        assert "Level 3 Elf Fighter" in results[0].text
+        result = await get_character.run({"name_or_id": "Legolas"})
+        assert len(result.content) == 1
+        assert "Legolas" in result.content[0].text
+        assert "Level 3 Elf Fighter" in result.content[0].text
 
     async def test_update_character(self, storage_with_campaign):
         """Test updating character properties."""
@@ -177,12 +177,12 @@ class TestAPI:
             {"name": "Gimli", "character_class": "Fighter", "class_level": 4, "race": "Dwarf"}
         )
 
-        results = await update_character.run(
+        result = await update_character.run(
             {"name_or_id": "Gimli", "hit_points_current": 25, "armor_class": 18}
         )
-        assert len(results) == 1
-        assert "Gimli" in results[0].text
-        assert "hit points current: 25" in results[0].text
+        assert len(result.content) == 1
+        assert "Gimli" in result.content[0].text
+        assert "hit points current: 25" in result.content[0].text
 
     async def test_bulk_update_characters(self, storage_with_campaign):
         """Test bulk updating multiple characters."""
@@ -195,11 +195,11 @@ class TestAPI:
             {"name": "Char2", "character_class": "Wizard", "class_level": 1, "race": "Elf"}
         )
 
-        results = await bulk_update_characters.run(
+        result = await bulk_update_characters.run(
             {"names_or_ids": ["Char1", "Char2"], "hp_change": 5}
         )
-        assert len(results) == 1
-        assert "Characters updated" in results[0].text
+        assert len(result.content) == 1
+        assert "Characters updated" in result.content[0].text
 
     async def test_add_item_to_character(self, storage_with_campaign):
         """Test adding an item to character inventory."""
@@ -209,7 +209,7 @@ class TestAPI:
             {"name": "Frodo", "character_class": "Rogue", "class_level": 2, "race": "Halfling"}
         )
 
-        results = await add_item_to_character.run(
+        result = await add_item_to_character.run(
             {
                 "character_name_or_id": "Frodo",
                 "item_name": "Short Sword",
@@ -217,9 +217,9 @@ class TestAPI:
                 "quantity": 1,
             }
         )
-        assert len(results) == 1
-        assert "Short Sword" in results[0].text
-        assert "Frodo" in results[0].text
+        assert len(result.content) == 1
+        assert "Short Sword" in result.content[0].text
+        assert "Frodo" in result.content[0].text
 
     async def test_list_characters(self, storage_with_campaign):
         """Test listing all characters."""
@@ -229,9 +229,9 @@ class TestAPI:
             {"name": "Gandalf", "character_class": "Wizard", "class_level": 10, "race": "Human"}
         )
 
-        results = await list_characters.run({})
-        assert len(results) == 1
-        assert "Gandalf" in results[0].text
+        result = await list_characters.run({})
+        assert len(result.content) == 1
+        assert "Gandalf" in result.content[0].text
 
     async def test_get_character_resource(self, storage_with_campaign):
         """Test getting character as a resource."""
@@ -362,7 +362,7 @@ class TestAPI:
     async def test_create_npc(self, storage_with_campaign):
         """Test creating a new NPC."""
         override_storage(storage_with_campaign)
-        results = await create_npc.run(
+        result = await create_npc.run(
             {
                 "name": "Elrond",
                 "description": "Wise elf lord",
@@ -371,8 +371,8 @@ class TestAPI:
                 "attitude": "friendly",
             }
         )
-        assert len(results) == 1
-        assert "Elrond" in results[0].text
+        assert len(result.content) == 1
+        assert "Elrond" in result.content[0].text
 
     async def test_get_npc(self, storage_with_campaign):
         """Test getting NPC information."""
@@ -380,10 +380,10 @@ class TestAPI:
         # First create an NPC
         await create_npc.run({"name": "Sauron", "description": "Dark Lord", "attitude": "hostile"})
 
-        results = await get_npc.run({"name": "Sauron"})
-        assert len(results) == 1
-        assert "Sauron" in results[0].text
-        assert "Dark Lord" in results[0].text
+        result = await get_npc.run({"name": "Sauron"})
+        assert len(result.content) == 1
+        assert "Sauron" in result.content[0].text
+        assert "Dark Lord" in result.content[0].text
 
     async def test_list_npcs(self, storage_with_campaign):
         """Test listing all NPCs."""
@@ -391,15 +391,15 @@ class TestAPI:
         # First create an NPC
         await create_npc.run({"name": "Boromir", "occupation": "Captain"})
 
-        results = await list_npcs.run({})
-        assert len(results) == 1
-        assert "Boromir" in results[0].text
+        result = await list_npcs.run({})
+        assert len(result.content) == 1
+        assert "Boromir" in result.content[0].text
 
     # Monster Management Tests
     async def test_create_monster(self, storage_with_campaign):
         """Test creating a new monster."""
         override_storage(storage_with_campaign)
-        results = await create_monster.run(
+        result = await create_monster.run(
             {
                 "name": "Goblin Scout",
                 "monster_type": "Goblin",
@@ -416,9 +416,9 @@ class TestAPI:
                 "location": "Forest Path",
             }
         )
-        assert len(results) == 1
-        assert "Goblin Scout" in results[0].text
-        assert "8/8 HP" in results[0].text
+        assert len(result.content) == 1
+        assert "Goblin Scout" in result.content[0].text
+        assert "8/8 HP" in result.content[0].text
 
     async def test_get_monster(self, storage_with_campaign):
         """Test getting monster information."""
@@ -436,12 +436,12 @@ class TestAPI:
             }
         )
 
-        results = await get_monster.run({"name": "Orc Warrior"})
-        assert len(results) == 1
-        assert "Orc Warrior" in results[0].text
-        assert "Orc" in results[0].text
-        assert "15/15" in results[0].text  # HP display
-        assert "**AC:** 13" in results[0].text
+        result = await get_monster.run({"name": "Orc Warrior"})
+        assert len(result.content) == 1
+        assert "Orc Warrior" in result.content[0].text
+        assert "Orc" in result.content[0].text
+        assert "15/15" in result.content[0].text  # HP display
+        assert "**AC:** 13" in result.content[0].text
 
     async def test_list_monsters(self, storage_with_campaign):
         """Test listing all monsters in game state."""
@@ -464,40 +464,40 @@ class TestAPI:
             }
         )
 
-        results = await list_monsters.run({})
-        assert len(results) == 1
-        assert "Goblin 1" in results[0].text
-        assert "Goblin 2" in results[0].text
-        assert "Cave Entrance" in results[0].text
+        result = await list_monsters.run({})
+        assert len(result.content) == 1
+        assert "Goblin 1" in result.content[0].text
+        assert "Goblin 2" in result.content[0].text
+        assert "Cave Entrance" in result.content[0].text
 
     async def test_create_monster_with_minimal_params(self, storage_with_campaign):
         """Test creating monster with only required parameters."""
         override_storage(storage_with_campaign)
-        results = await create_monster.run(
+        result = await create_monster.run(
             {"name": "Basic Skeleton", "monster_type": "Undead", "hit_points_max": 13}
         )
-        assert len(results) == 1
-        assert "Basic Skeleton" in results[0].text
-        assert "13/13 HP" in results[0].text
+        assert len(result.content) == 1
+        assert "Basic Skeleton" in result.content[0].text
+        assert "13/13 HP" in result.content[0].text
 
     async def test_get_nonexistent_monster(self, storage_with_campaign):
         """Test getting a monster that doesn't exist."""
         override_storage(storage_with_campaign)
-        results = await get_monster.run({"name": "Nonexistent Monster"})
-        assert len(results) == 1
-        assert "not found" in results[0].text
+        result = await get_monster.run({"name": "Nonexistent Monster"})
+        assert len(result.content) == 1
+        assert "not found" in result.content[0].text
 
     async def test_list_empty_monsters(self, storage_with_campaign):
         """Test listing monsters when none exist."""
         override_storage(storage_with_campaign)
-        results = await list_monsters.run({})
-        assert len(results) == 1
-        assert "No monsters" in results[0].text
+        result = await list_monsters.run({})
+        assert len(result.content) == 1
+        assert "No monsters" in result.content[0].text
 
     async def test_create_monster_with_advanced_stats(self, storage_with_campaign):
         """Test creating a monster with advanced D&D 5E stats."""
         override_storage(storage_with_campaign)
-        results = await create_monster.run(
+        result = await create_monster.run(
             {
                 "name": "Young Dragon",
                 "monster_type": "Dragon",
@@ -517,15 +517,15 @@ class TestAPI:
                 "charisma": 19,
             }
         )
-        assert len(results) == 1
-        assert "Young Dragon" in results[0].text
-        assert "178/178 HP" in results[0].text
+        assert len(result.content) == 1
+        assert "Young Dragon" in result.content[0].text
+        assert "178/178 HP" in result.content[0].text
 
     # Location Management Tests
     async def test_create_location(self, storage_with_campaign):
         """Test creating a new location."""
         override_storage(storage_with_campaign)
-        results = await create_location.run(
+        result = await create_location.run(
             {
                 "name": "Rivendell",
                 "location_type": "city",
@@ -533,8 +533,8 @@ class TestAPI:
                 "population": 500,
             }
         )
-        assert len(results) == 1
-        assert "Rivendell" in results[0].text
+        assert len(result.content) == 1
+        assert "Rivendell" in result.content[0].text
 
     async def test_get_location(self, storage_with_campaign):
         """Test getting location information."""
@@ -544,10 +544,10 @@ class TestAPI:
             {"name": "Moria", "location_type": "dungeon", "description": "Ancient dwarven mines"}
         )
 
-        results = await get_location.run({"name": "Moria"})
-        assert len(results) == 1
-        assert "Moria" in results[0].text
-        assert "dungeon" in results[0].text
+        result = await get_location.run({"name": "Moria"})
+        assert len(result.content) == 1
+        assert "Moria" in result.content[0].text
+        assert "dungeon" in result.content[0].text
 
     async def test_list_locations(self, storage_with_campaign):
         """Test listing all locations."""
@@ -557,15 +557,15 @@ class TestAPI:
             {"name": "Gondor", "location_type": "kingdom", "description": "Great kingdom of men"}
         )
 
-        results = await list_locations.run({})
-        assert len(results) == 1
-        assert "Gondor" in results[0].text
+        result = await list_locations.run({})
+        assert len(result.content) == 1
+        assert "Gondor" in result.content[0].text
 
     # Quest Management Tests
     async def test_create_quest(self, storage_with_campaign):
         """Test creating a new quest."""
         override_storage(storage_with_campaign)
-        results = await create_quest.run(
+        result = await create_quest.run(
             {
                 "title": "Destroy the Ring",
                 "description": "Take the One Ring to Mount Doom",
@@ -573,8 +573,8 @@ class TestAPI:
                 "reward": "Save Middle-earth",
             }
         )
-        assert len(results) == 1
-        assert "Destroy the Ring" in results[0].text
+        assert len(result.content) == 1
+        assert "Destroy the Ring" in result.content[0].text
 
     async def test_update_quest(self, storage_with_campaign):
         """Test updating quest status."""
@@ -584,9 +584,9 @@ class TestAPI:
             {"title": "Find the Shire", "description": "Locate the halfling homeland"}
         )
 
-        results = await update_quest.run({"title": "Find the Shire", "status": "completed"})
-        assert len(results) == 1
-        assert "Find the Shire" in results[0].text
+        result = await update_quest.run({"title": "Find the Shire", "status": "completed"})
+        assert len(result.content) == 1
+        assert "Find the Shire" in result.content[0].text
 
     async def test_list_quests(self, storage_with_campaign):
         """Test listing quests."""
@@ -596,19 +596,19 @@ class TestAPI:
             {"title": "Gather the Fellowship", "description": "Assemble companions"}
         )
 
-        results = await list_quests.run({})
-        assert len(results) == 1
-        assert "Gather the Fellowship" in results[0].text
+        result = await list_quests.run({})
+        assert len(result.content) == 1
+        assert "Gather the Fellowship" in result.content[0].text
 
     # Game State Management Tests
     async def test_update_game_state(self, storage_with_campaign):
         """Test updating game state."""
         override_storage(storage_with_campaign)
-        results = await update_game_state.run(
+        result = await update_game_state.run(
             {"current_location": "Bag End", "party_level": 3, "in_combat": False}
         )
-        assert len(results) == 1
-        assert "Updated game state" in results[0].text
+        assert len(result.content) == 1
+        assert "Updated game state" in result.content[0].text
 
     async def test_get_game_state(self, storage_with_campaign):
         """Test getting current game state."""
@@ -616,9 +616,9 @@ class TestAPI:
         # First update the game state
         await update_game_state.run({"current_location": "Hobbiton", "party_level": 1})
 
-        results = await get_game_state.run({})
-        assert len(results) == 1
-        assert "Hobbiton" in results[0].text
+        result = await get_game_state.run({})
+        assert len(result.content) == 1
+        assert "Hobbiton" in result.content[0].text
 
     # Combat Management Tests
     async def test_start_combat(self, storage_with_campaign):
@@ -631,20 +631,20 @@ class TestAPI:
             CombatParticipant(name="Orc", initiative=12, hp=15, ac=13, speed=25),
         ]
 
-        results = await start_combat.run({"participants": participants})
-        assert len(results) == 1
-        assert "Combat Started" in results[0].text
-        assert "Hero" in results[0].text
+        result = await start_combat.run({"participants": participants})
+        assert len(result.content) == 1
+        assert "Combat Started" in result.content[0].text
+        assert "Hero" in result.content[0].text
 
     async def test_end_combat(self, storage_with_campaign):
         """Test ending combat encounter."""
         override_storage(storage_with_campaign)
-        results = await end_combat.run({
+        result = await end_combat.run({
             "result": "victory",
             "summary": "The heroes emerged victorious"
         })
-        assert len(results) == 1
-        assert "Combat ended" in results[0].text
+        assert len(result.content) == 1
+        assert "Combat ended" in result.content[0].text
 
     async def test_next_turn(self, storage_with_campaign):
         """Test advancing combat turn."""
@@ -658,23 +658,23 @@ class TestAPI:
         ]
         await start_combat.run({"participants": participants})
 
-        results = await next_turn.run({})
-        assert len(results) == 1
-        assert "Next Turn" in results[0].text
+        result = await next_turn.run({})
+        assert len(result.content) == 1
+        assert "Next Turn" in result.content[0].text
 
     # Session Management Tests
     async def test_add_session_note(self, storage_with_campaign):
         """Test adding session notes."""
         override_storage(storage_with_campaign)
-        results = await add_session_note.run(
+        result = await add_session_note.run(
             {
                 "session_number": 1,
                 "summary": "The party began their journey",
                 "title": "The Adventure Begins",
             }
         )
-        assert len(results) == 1
-        assert "Session 1" in results[0].text
+        assert len(result.content) == 1
+        assert "Session 1" in result.content[0].text
 
     async def test_get_sessions(self, storage_with_campaign):
         """Test getting all session notes."""
@@ -682,15 +682,15 @@ class TestAPI:
         # First add a session note
         await add_session_note.run({"session_number": 2, "summary": "Epic battles were fought"})
 
-        results = await get_sessions.run({})
-        assert len(results) == 1
-        assert "Session 2" in results[0].text
+        result = await get_sessions.run({})
+        assert len(result.content) == 1
+        assert "Session 2" in result.content[0].text
 
     # Adventure Log Tests
     async def test_add_event(self, storage_with_campaign):
         """Test adding an adventure event."""
         override_storage(storage_with_campaign)
-        results = await add_event.run(
+        result = await add_event.run(
             {
                 "event_type": "combat",
                 "title": "Battle of Helm's Deep",
@@ -698,8 +698,8 @@ class TestAPI:
                 "importance": 5,
             }
         )
-        assert len(results) == 1
-        assert "Battle of Helm's Deep" in results[0].text
+        assert len(result.content) == 1
+        assert "Battle of Helm's Deep" in result.content[0].text
 
     async def test_get_events(self, storage_with_campaign):
         """Test getting adventure events."""
@@ -714,21 +714,21 @@ class TestAPI:
             }
         )
 
-        results = await get_events.run({"campaign": campaign_name})
-        assert len(results) == 1
-        assert "Meeting with Elrond" in results[0].text
+        result = await get_events.run({"campaign": campaign_name})
+        assert len(result.content) == 1
+        assert "Meeting with Elrond" in result.content[0].text
 
     # Utility Tests
     async def test_roll_dice(self, storage_with_campaign):
         """Test dice rolling utility."""
         override_storage(storage_with_campaign)
-        results = await roll_dice.run({"dice_notation": "1d20"})
-        assert len(results) == 1
-        assert "1d20" in results[0].text
+        result = await roll_dice.run({"dice_notation": "1d20"})
+        assert len(result.content) == 1
+        assert "1d20" in result.content[0].text
         # Check that result contains a number between 1-20
         import re
 
-        numbers = re.findall(r"\*\*(\d+)\*\*", results[0].text)
+        numbers = re.findall(r"\*\*(\d+)\*\*", result.content[0].text)
         assert len(numbers) > 0
         total = int(numbers[-1])  # Last number should be the total
         assert 1 <= total <= 20
@@ -736,29 +736,29 @@ class TestAPI:
     async def test_calculate_experience(self, storage_with_campaign):
         """Test experience calculation."""
         override_storage(storage_with_campaign)
-        results = await calculate_experience.run(
+        result = await calculate_experience.run(
             {"party_size": 4, "party_level": 3, "encounter_xp": 600}
         )
-        assert len(results) == 1
-        assert "XP per Player: 150" in results[0].text
+        assert len(result.content) == 1
+        assert "XP per Player: 150" in result.content[0].text
 
     # Transcript Tests
     async def test_record_interaction(self, storage_with_campaign):
         """Test recording player-game interaction."""
         override_storage(storage_with_campaign)
-        results = await record_interaction.run(
+        result = await record_interaction.run(
             {
                 "player_entry": "I want to investigate the room",
                 "game_response": "You find a hidden door behind the bookshelf",
             }
         )
-        # record_interaction returns None, so we just check it doesn't crash
-        assert results is None or len(results) == 0
+        # record_interaction returns empty content, so we just check it doesn't crash
+        assert result.content is not None
 
     async def test_record_interaction_with_tools_text_only(self, storage_with_campaign):
         """Test recording interaction with only text responses."""
         override_storage(storage_with_campaign)
-        results = await record_interaction_with_tools.run(
+        result = await record_interaction_with_tools.run(
             {
                 "player_entry": "What's in the room?",
                 "game_responses": [
@@ -767,13 +767,13 @@ class TestAPI:
                 ],
             }
         )
-        assert len(results) == 1
-        assert "Recorded interaction with 2 response(s)" in results[0].text
+        assert len(result.content) == 1
+        assert "Recorded interaction with 2 response(s)" in result.content[0].text
 
     async def test_record_interaction_with_tools_tool_calls_only(self, storage_with_campaign):
         """Test recording interaction with only tool call responses."""
         override_storage(storage_with_campaign)
-        results = await record_interaction_with_tools.run(
+        result = await record_interaction_with_tools.run(
             {
                 "player_entry": "I search for treasure",
                 "game_responses": [
@@ -794,13 +794,13 @@ class TestAPI:
                 ],
             }
         )
-        assert len(results) == 1
-        assert "Recorded interaction with 1 response(s)" in results[0].text
+        assert len(result.content) == 1
+        assert "Recorded interaction with 1 response(s)" in result.content[0].text
 
     async def test_record_interaction_with_tools_mixed_responses(self, storage_with_campaign):
         """Test recording interaction with mixed text and tool call responses."""
         override_storage(storage_with_campaign)
-        results = await record_interaction_with_tools.run(
+        result = await record_interaction_with_tools.run(
             {
                 "player_entry": "I attack the goblin",
                 "game_responses": [
@@ -825,21 +825,21 @@ class TestAPI:
                 ],
             }
         )
-        assert len(results) == 1
-        assert "Recorded interaction with 4 response(s)" in results[0].text
+        assert len(result.content) == 1
+        assert "Recorded interaction with 4 response(s)" in result.content[0].text
 
     async def test_record_interaction_with_tools_with_session(self, storage_with_campaign):
         """Test recording interaction with explicit session number."""
         override_storage(storage_with_campaign)
-        results = await record_interaction_with_tools.run(
+        result = await record_interaction_with_tools.run(
             {
                 "player_entry": "Let's begin session 5",
                 "game_responses": ["Welcome to session 5!"],
                 "session_number": 5,
             }
         )
-        assert len(results) == 1
-        assert "Recorded interaction with 1 response(s)" in results[0].text
+        assert len(result.content) == 1
+        assert "Recorded interaction with 1 response(s)" in result.content[0].text
 
     async def test_record_interaction_with_tools_verify_transcript_structure(self, storage_with_campaign):
         """Test that recorded interaction has correct structure in transcript."""
@@ -1051,13 +1051,13 @@ class TestAPI:
         override_storage(storage_with_campaign)
 
         result = await set_mode.run({"modes": "town"})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Set modes to: [town]" in result_text
         assert "Primary mode: town" in result_text
 
         # Verify the mode was actually set
         game_state_result = await get_mode.run({})
-        mode_text = game_state_result[0].text
+        mode_text = game_state_result.content[0].text
         assert "Current modes: [town]" in mode_text
         assert "Primary mode: town" in mode_text
 
@@ -1066,13 +1066,13 @@ class TestAPI:
         override_storage(storage_with_campaign)
 
         result = await set_mode.run({"modes": ["outdoors", "dungeon"]})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Set modes to: [outdoors, dungeon]" in result_text
         assert "Primary mode: outdoors" in result_text
 
         # Verify the modes were set
         game_state_result = await get_mode.run({})
-        mode_text = game_state_result[0].text
+        mode_text = game_state_result.content[0].text
         assert "Current modes: [outdoors, dungeon]" in mode_text
         assert "Primary mode: outdoors" in mode_text
 
@@ -1082,13 +1082,13 @@ class TestAPI:
 
         # Set modes with combat not first
         result = await set_mode.run({"modes": ["dungeon", "combat", "town"]})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Set modes to: [combat, dungeon, town]" in result_text
         assert "Primary mode: combat" in result_text
 
         # Verify combat is first
         game_state_result = await get_mode.run({})
-        mode_text = game_state_result[0].text
+        mode_text = game_state_result.content[0].text
         assert "Current modes: [combat, dungeon, town]" in mode_text
         assert "Primary mode: combat" in mode_text
 
@@ -1097,7 +1097,7 @@ class TestAPI:
         override_storage(storage_with_campaign)
 
         result = await set_mode.run({"modes": "invalid_mode"})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Invalid modes: invalid_mode" in result_text
         assert "Available modes:" in result_text
 
@@ -1106,7 +1106,7 @@ class TestAPI:
         override_storage(storage_with_campaign)
 
         result = await set_mode.run({"modes": ["town", "invalid", "combat"]})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Invalid modes: invalid" in result_text
         assert "Available modes:" in result_text
 
@@ -1123,7 +1123,7 @@ class TestAPI:
 
         # The default mode should be "setup"
         result = await get_mode.run({})
-        result_text = result[0].text
+        result_text = result.content[0].text
         assert "Current modes: [setup]" in result_text
         assert "Primary mode: setup" in result_text
 
@@ -1187,6 +1187,6 @@ class TestAPI:
 
         # Verify by getting modes directly
         mode_result = await get_mode.run({})
-        mode_text = mode_result[0].text
+        mode_text = mode_result.content[0].text
         assert "Current modes: [town, setup]" in mode_text
         assert "Primary mode: town" in mode_text

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main entry point for the D&D MCP Server (FastMCP 2.8.0+ compatible).
+Main entry point for the D&D MCP Server (FastMCP 2.12+ compatible).
 """
 
 from .main import main

@@ -1,5 +1,5 @@
 """
-D&D MCP Server - A comprehensive campaign management tool for D&D built with FastMCP 2.8.0+.
+D&D MCP Server - A comprehensive campaign management tool for D&D built with FastMCP 2.12+.
 """
 
 from .main import mcp

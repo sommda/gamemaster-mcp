@@ -42,7 +42,7 @@ uv pip install -e .[dev]
 ## Architecture Overview
 
 ### Core Framework
-This is a **FastMCP 2.9.0+ server** for D&D campaign management. FastMCP automatically generates JSON schemas from type annotations and handles parameter validation.
+This is a **FastMCP 2.12+ server** for D&D campaign management. FastMCP automatically generates JSON schemas from type annotations and handles parameter validation.
 
 ### Key Components
 
@@ -82,8 +82,8 @@ def tool_name(
 - **`AdventureEvent`**: Categorized event logging with importance ratings
 
 ### Dependencies
-- FastMCP 2.9.0+ for MCP server framework
-- Pydantic 2.0+ for data validation and models
+- FastMCP 2.12.5+ for MCP server framework
+- Pydantic 2.12.3+ for data validation and models
 - Python 3.12+ required
 
 ### Testing

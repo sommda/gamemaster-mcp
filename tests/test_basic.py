@@ -1,5 +1,5 @@
 """
-Test file for the D&D MCP Server (FastMCP 2.8.0+ compliant).
+Test file for the D&D MCP Server (FastMCP 2.12+ compliant).
 """
 
 import pytest

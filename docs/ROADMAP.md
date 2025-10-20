@@ -70,7 +70,7 @@ The current version of the server provides a robust foundation for comprehensive
 
 ### Key Features
 
-* **Architecture**: Modern, type-safe architecture using FastMCP 2.9.0+, with clear separation of concerns between the server logic ([`main.py`](src/gamemaster_mcp/main.py)), data models ([`models.py`](src/gamemaster_mcp/models.py)), and persistence ([`storage.py`](src/gamemaster_mcp/storage.py)).
+* **Architecture**: Modern, type-safe architecture using FastMCP 2.12+, with clear separation of concerns between the server logic ([`main.py`](src/gamemaster_mcp/main.py)), data models ([`models.py`](src/gamemaster_mcp/models.py)), and persistence ([`storage.py`](src/gamemaster_mcp/storage.py)).
 * **Campaign Management**: Full CRUD operations for creating, loading, and managing multiple, distinct campaigns.
 * **Data Persistence**: A reliable storage layer that saves campaign data to JSON files (`dnd_data/campaigns/`) and maintains a global event log (`dnd_data/events/adventure_log.json`).
 * **Comprehensive Data Models**: A rich set of Pydantic models covering all core D&D concepts:

@@ -1493,6 +1493,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    mcp.include_fastmcp_meta = True
 
     if args.transport is not None:
         mcp.run(transport=args.transport, port=args.port)

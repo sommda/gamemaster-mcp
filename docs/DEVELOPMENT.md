@@ -1,9 +1,9 @@
 # Table of Contents
 - [Table of Contents](#table-of-contents)
-- [D\&D MCP Server - Development Guide (FastMCP 2.9.0+)](#dd-mcp-server---development-guide-fastmcp-290)
+- [D\&D MCP Server - Development Guide (FastMCP 2.12+)](#dd-mcp-server---development-guide-fastmcp-212)
   - [CORE PROJECT RULES](#core-project-rules)
   - [📁 Project Structure](#-project-structure)
-  - [🚀 FastMCP 2.9.0+ Architecture](#-fastmcp-290-architecture)
+  - [🚀 FastMCP 2.12+ Architecture](#-fastmcp-212-architecture)
     - [**Major Changes from Raw MCP SDK**](#major-changes-from-raw-mcp-sdk)
       - [**1. Import Statement**](#1-import-statement)
       - [**2. Server Initialization**](#2-server-initialization)
@@ -41,7 +41,7 @@
     - [**`EventType`**](#eventtype)
     - [**`AdventureEvent`**](#adventureevent)
   - [🎯 Development Workflows](#-development-workflows)
-    - [**Adding a New Tool with FastMCP 2.9.0+**](#adding-a-new-tool-with-fastmcp-290)
+    - [**Adding a New Tool with FastMCP 2.12+**](#adding-a-new-tool-with-fastmcp-212)
     - [**Extending Data Models**](#extending-data-models)
     - [**Testing with FastMCP CLI**](#testing-with-fastmcp-cli)
   - [🧪 Testing \& Validation](#-testing--validation)
@@ -61,7 +61,7 @@
     - [**FastMCP-Specific Conventions**](#fastmcp-specific-conventions)
     - [**Parameter Guidelines**](#parameter-guidelines)
 
-# D&D MCP Server - Development Guide (FastMCP 2.9.0+)
+# D&D MCP Server - Development Guide (FastMCP 2.12+)
 
 ## CORE PROJECT RULES
 
@@ -75,7 +75,7 @@ gamemaster-mcp/
 │   ├── gamemaster_mcp/           # Renamed for FastMCP compliance
 │   │   ├── __init__.py          # Package initialization
 │   │   ├── __main__.py          # Module entry point
-│   │   ├── main.py              # FastMCP 2.9.0+ server implementation
+│   │   ├── main.py              # FastMCP 2.12+ server implementation
 │   │   ├── models.py            # Pydantic data models
 │   │   └── storage.py           # Data persistence layer
 │   └── main.py                  # CLI entry point
@@ -87,7 +87,7 @@ gamemaster-mcp/
 └── README.md                   # User documentation
 ```
 
-## 🚀 FastMCP 2.9.0+ Architecture
+## 🚀 FastMCP 2.12+ Architecture
 
 ### **Major Changes from Raw MCP SDK**
 
@@ -119,7 +119,7 @@ def create_campaign(
 ```
 
 #### **4. Type Annotations & Validation**
-FastMCP 2.9.0+ automatically generates schemas from type hints.
+FastMCP 2.12+ automatically generates schemas from type hints.
 
 ```python
 @mcp.tool
@@ -483,7 +483,7 @@ Represents a single, taggable event in the adventure log, allowing for a more gr
 
 ## 🎯 Development Workflows
 
-### **Adding a New Tool with FastMCP 2.9.0+**
+### **Adding a New Tool with FastMCP 2.12+**
 1. **Define Tool with Type Annotations**:
 
 ```python
@@ -623,7 +623,7 @@ def validate_example(
 #### **Import Issues**
 
 ```python
-# ✅ Correct FastMCP 2.9.0+ imports
+# ✅ Correct FastMCP 2.12+ imports
 from fastmcp import FastMCP
 from pydantic import Field
 from typing import Annotated, Optional, Literal, List, Dict

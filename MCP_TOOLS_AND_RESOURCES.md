@@ -26,7 +26,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
 
 ## Overview
 
-The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.9.0+. It provides 30+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to hierarchical adventure tracking.
+The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.12+. It provides 30+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to hierarchical adventure tracking.
 
 **Core Architecture:**
 - **Campaign-centric design**: All data is organized within [Campaign](DATA_MODELS.md#campaign) objects
