@@ -579,6 +579,99 @@ class DnDStorage:
         logger.info(f"✅ Ended adventure: {adventure_node.title}")
         return adventure_node
 
+    def get_ungrouped_transcript_nodes(
+        self,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> list[TranscriptInteraction | TranscriptCombat | TranscriptAdventure]:
+        """Get all transcript nodes that haven't been grouped into an adventure yet.
+
+        Returns all nodes after the last TranscriptAdventure in the transcript's children.
+        """
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            return []
+
+        # Find the index of the last TranscriptAdventure in children
+        last_adventure_index = -1
+        for i, child in enumerate(transcript.children):
+            if isinstance(child, TranscriptAdventure):
+                last_adventure_index = i
+
+        # Get all nodes after the last adventure (or all nodes if no adventure exists)
+        return transcript.children[last_adventure_index + 1:]
+
+    def complete_transcript_adventure(
+        self,
+        title: str,
+        summary: str,
+        campaign_name: str | None = None,
+        session_number: int | None = None,
+    ) -> TranscriptAdventure:
+        """Complete an adventure by grouping all interactions since the last adventure.
+
+        Takes all nodes that have been added to the transcript root since the last
+        TranscriptAdventure node (or since the start) and groups them into a new
+        TranscriptAdventure node at the same level.
+        """
+        if campaign_name is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            campaign_name = campaign.name
+
+        if session_number is None:
+            campaign = self.get_current_campaign()
+            if not campaign:
+                raise ValueError("No current campaign")
+            session_number = campaign.game_state.current_session
+
+        # Load or create transcript
+        transcript = self._load_transcript(campaign_name, session_number)
+        if transcript is None:
+            # No transcript exists, nothing to complete
+            raise ValueError("No transcript found for this session")
+
+        # Find the index of the last TranscriptAdventure in children
+        last_adventure_index = -1
+        for i, child in enumerate(transcript.children):
+            if isinstance(child, TranscriptAdventure):
+                last_adventure_index = i
+
+        # Get all nodes after the last adventure (or all nodes if no adventure exists)
+        nodes_to_group = transcript.children[last_adventure_index + 1:]
+
+        if not nodes_to_group:
+            raise ValueError("No interactions to group into an adventure")
+
+        # Create new adventure node with these interactions
+        adventure = TranscriptAdventure(
+            title=title,
+            summary=summary,
+            actions=nodes_to_group,
+        )
+
+        # Replace the grouped nodes with the single adventure node
+        transcript.children = transcript.children[:last_adventure_index + 1] + [adventure]
+
+        # Save transcript
+        self._save_transcript(transcript)
+        logger.info(f"✅ Completed adventure: '{title}' with {len(nodes_to_group)} node(s)")
+        return adventure
+
     # Campaign Management
     def create_campaign(
         self,
@@ -729,7 +822,9 @@ class DnDStorage:
         new_name = kwargs.get("name")
 
         for key, value in kwargs.items():
-            if hasattr(character, key):
+            if key == 'level':
+                character.character_class.level = value
+            elif hasattr(character, key):
                 logger.debug(f"📝 Updating character '{original_name}': {key} -> {value}")
                 setattr(character, key, value)
 

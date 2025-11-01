@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from dotenv import load_dotenv
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.prompts.prompt import Message
+from mcp.types import TextContent
 from pydantic import Field
 
 from .models import (
@@ -34,6 +35,9 @@ from .models import (
     Race,
     SessionNote,
     Transcript,
+    TranscriptAdventure,
+    TranscriptCombat,
+    TranscriptInteraction,
 )
 
 from .prompts import core_prompt, setup_prompt
@@ -73,6 +77,30 @@ def override_storage(ovr_storage: DnDStorage) -> None:
 # ----------------------------------------------------------------------
 # Tools
 # ----------------------------------------------------------------------
+
+
+# Helper Functions
+def _strip_tools_from_nodes(
+    nodes: list[TranscriptInteraction | TranscriptCombat | TranscriptAdventure]
+) -> list[dict[str, Any]]:
+    """Convert transcript nodes to JSON dict, keeping only text responses."""
+    result = []
+
+    for node in nodes:
+        if isinstance(node, TranscriptInteraction):
+            # Extract only text responses
+            text_responses = []
+            for resp in node.responses:
+                if resp.type == "text":
+                    text_responses.append(resp.content)
+
+            result.append({
+                "type": "interaction",
+                "user_text": node.user_text,
+                "responses": text_responses
+            })
+
+    return result
 
 
 # Campaign management tools
@@ -1038,28 +1066,71 @@ def end_combat(
 
 # Adventure Management Tools
 @tool_with_logging(mcp, tags=["mode:any"])
-def start_adventure(
+async def complete_adventure(
+    ctx: Context,
     title: Annotated[str, Field(description="Adventure title (e.g., 'The Temple of Doom')")],
-    quest_id: Annotated[str | None, Field(description="Associated quest ID, if any")] = None,
-) -> str:
-    """Start an adventure and begin recording interactions in the transcript as part of this adventure."""
-    adventure = storage.start_transcript_adventure(title=title, quest_id=quest_id)
-    return f"📖 Started adventure: '{adventure.title}'. All interactions will be recorded as part of this adventure."
-
-
-@tool_with_logging(mcp, tags=["mode:any"])
-def end_adventure(
-    summary: Annotated[str, Field(description="Summary of what happened during the adventure")],
-    rewards: Annotated[
-        list[str] | None, Field(description="List of rewards obtained (items, XP, etc.)")
+    campaign_name: Annotated[
+        str | None, Field(description="Campaign name (uses current campaign if None)")
+    ] = None,
+    session_number: Annotated[
+        int | None, Field(description="Session number (uses current session if None)", ge=1)
     ] = None,
 ) -> str:
-    """End the current adventure and record the summary in the transcript."""
+    """Complete an adventure by grouping all interactions since the last adventure into a new adventure node.
+
+    This tool takes all interactions that have occurred since the last call to complete_adventure
+    (or since the start of the transcript) and groups them under a new TranscriptAdventure node.
+    The adventure node is placed at the same level in the transcript as the original interactions.
+    """
     try:
-        adventure_node = storage.end_transcript_adventure(summary=summary, rewards=rewards)
-        return f"✅ Ended adventure: '{adventure_node.title}'. Summary recorded in transcript."
+        # Get ungrouped nodes
+        nodes = storage.get_ungrouped_transcript_nodes(
+            campaign_name=campaign_name,
+            session_number=session_number
+        )
+
+        if not nodes:
+            return "❌ No interactions to group into an adventure."
+
+        # Strip tools and convert to JSON
+        import json
+        nodes_for_summary = _strip_tools_from_nodes(nodes)
+        nodes_json = json.dumps(nodes_for_summary, indent=2)
+
+        # Use sampling to generate a summary
+        system_prompt = f"""You are summarizing a D&D adventure titled "{title}".
+
+You will be given a set of interactions that occurred during this adventure (in JSON format).
+
+Please provide a concise but comprehensive summary of what happened during this adventure. Focus on:
+- Key events and story developments
+- Important NPC interactions
+- Combat encounters and their outcomes
+- Treasure or items obtained
+- Quest progress
+
+Keep the summary to 2-3 paragraphs."""
+
+        summary_result = await ctx.sample(
+            messages = nodes_json,
+            system_prompt = system_prompt,
+            max_tokens=16000
+        )
+
+        # Extract text from response
+        summary = summary_result.text
+
+        # Complete the adventure with the generated summary
+        adventure_node = storage.complete_transcript_adventure(
+            title=title,
+            summary=summary,
+            campaign_name=campaign_name,
+            session_number=session_number
+        )
+        action_count = len(adventure_node.actions)
+        return f"✅ Completed adventure: '{adventure_node.title}' with {action_count} interaction(s). Recorded in transcript.\n\nSummary: {summary}"
     except Exception as e:
-        return f"❌ Error ending adventure: {str(e)}"
+        return f"❌ Error completing adventure: {str(e)}"
 
 
 @tool_with_logging(mcp, tags=["mode:combat"])
