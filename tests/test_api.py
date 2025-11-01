@@ -10,6 +10,7 @@ from gamemaster_mcp.main import (
     add_event,
     add_item_to_character,
     add_session_note,
+    add_spell_to_character,
     bulk_update_characters,
     calculate_experience,
     create_campaign,
@@ -50,14 +51,17 @@ from gamemaster_mcp.main import (
     load_campaign,
     next_turn,
     override_storage,
+    prepare_spells,
     record_interaction,
     record_interaction_with_tools,
+    remove_item_from_character,
     roll_dice,
     set_mode,
     start_combat,
     update_character,
     update_game_state,
     update_quest,
+    update_spell_slot,
 )
 
 
@@ -184,6 +188,224 @@ class TestAPI:
         assert "Gimli" in result.content[0].text
         assert "hit points current: 25" in result.content[0].text
 
+    async def test_update_character_ability_scores(self, storage_with_campaign):
+        """Test updating ability scores."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Gandalf", "character_class": "Wizard", "class_level": 10, "race": "Human"}
+        )
+
+        # Update ability scores
+        result = await update_character.run(
+            {
+                "name_or_id": "Gandalf",
+                "strength": 12,
+                "dexterity": 14,
+                "constitution": 16,
+                "intelligence": 20,
+                "wisdom": 18,
+                "charisma": 15,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Gandalf" in result.content[0].text
+
+        # Verify all ability scores were updated
+        character = storage_with_campaign.get_character("Gandalf")
+        assert character.abilities["strength"].score == 12
+        assert character.abilities["dexterity"].score == 14
+        assert character.abilities["constitution"].score == 16
+        assert character.abilities["intelligence"].score == 20
+        assert character.abilities["wisdom"].score == 18
+        assert character.abilities["charisma"].score == 15
+
+    async def test_update_character_level(self, storage_with_campaign):
+        """Test updating character level."""
+        override_storage(storage_with_campaign)
+        # Create a character at level 3
+        await create_character.run(
+            {"name": "Aragorn", "character_class": "Ranger", "class_level": 3, "race": "Human"}
+        )
+
+        # Verify initial level
+        character = storage_with_campaign.get_character("Aragorn")
+        assert character.character_class.level == 3
+
+        # Update level to 5
+        result = await update_character.run(
+            {"name_or_id": "Aragorn", "level": 5}
+        )
+        assert len(result.content) == 1
+        assert "Aragorn" in result.content[0].text
+        assert "level: 5" in result.content[0].text
+
+        # Verify level was updated in character_class
+        character = storage_with_campaign.get_character("Aragorn")
+        assert character.character_class.level == 5
+
+        # Verify get_character shows updated level
+        result = await get_character.run({"name_or_id": "Aragorn"})
+        assert "Level 5 Human Ranger" in result.content[0].text
+
+    async def test_update_character_level_by_id(self, storage_with_campaign):
+        """Test updating character level using character ID."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Legolas", "character_class": "Fighter", "class_level": 4, "race": "Elf"}
+        )
+
+        # Get character ID
+        character = storage_with_campaign.get_character("Legolas")
+        char_id = str(character.id)
+
+        # Update level using ID
+        result = await update_character.run(
+            {"name_or_id": char_id, "level": 7}
+        )
+        assert len(result.content) == 1
+        assert "Legolas" in result.content[0].text
+        assert "level: 7" in result.content[0].text
+
+        # Verify level was updated
+        character = storage_with_campaign.get_character("Legolas")
+        assert character.character_class.level == 7
+
+    async def test_update_character_level_with_other_properties(self, storage_with_campaign):
+        """Test updating level along with other character properties."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Gandalf", "character_class": "Wizard", "class_level": 8, "race": "Human"}
+        )
+
+        # Update multiple properties including level
+        result = await update_character.run(
+            {
+                "name_or_id": "Gandalf",
+                "level": 10,
+                "hit_points_max": 60,
+                "armor_class": 13,
+                "inspiration": True
+            }
+        )
+        assert len(result.content) == 1
+        assert "Gandalf" in result.content[0].text
+
+        # Verify all updates
+        character = storage_with_campaign.get_character("Gandalf")
+        assert character.character_class.level == 10
+        assert character.hit_points_max == 60
+        assert character.armor_class == 13
+        assert character.inspiration is True
+
+    async def test_update_character_level_boundary_values(self, storage_with_campaign):
+        """Test updating character level with boundary values."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "TestChar", "character_class": "Cleric", "class_level": 10, "race": "Human"}
+        )
+
+        # Update to level 1 (minimum)
+        result = await update_character.run({"name_or_id": "TestChar", "level": 1})
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.character_class.level == 1
+
+        # Update to level 20 (maximum)
+        result = await update_character.run({"name_or_id": "TestChar", "level": 20})
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.character_class.level == 20
+
+    async def test_update_character_string_to_int_conversion(self, storage_with_campaign):
+        """Test updating character with string values for int fields (FastMCP bug workaround)."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "TestChar", "character_class": "Fighter", "class_level": 5, "race": "Human"}
+        )
+
+        # Update with string values
+        result = await update_character.run({
+            "name_or_id": "TestChar",
+            "level": "10",
+            "hit_points_current": "50",
+            "hit_points_max": "60",
+            "strength": "18"
+        })
+
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.character_class.level == 10
+        assert character.hit_points_current == 50
+        assert character.hit_points_max == 60
+        assert character.abilities["strength"].score == 18
+
+    async def test_update_character_string_to_bool_conversion(self, storage_with_campaign):
+        """Test updating character with string values for bool fields."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "TestChar", "character_class": "Rogue", "class_level": 3, "race": "Halfling"}
+        )
+
+        # Test various true values
+        await update_character.run({"name_or_id": "TestChar", "inspiration": "true"})
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.inspiration is True
+
+        await update_character.run({"name_or_id": "TestChar", "inspiration": "1"})
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.inspiration is True
+
+        # Test various false values
+        await update_character.run({"name_or_id": "TestChar", "inspiration": "false"})
+        character = storage_with_campaign.get_character("TestChar")
+        assert character.inspiration is False
+
+    async def test_update_character_invalid_string_value(self, storage_with_campaign):
+        """Test that invalid string values are rejected."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "TestChar", "character_class": "Wizard", "class_level": 5, "race": "Elf"}
+        )
+
+        # Try to update with invalid int string
+        result = await update_character.run({"name_or_id": "TestChar", "level": "abc"})
+        result_text = result.content[0].text
+        assert "❌" in result_text
+        assert "not a valid integer" in result_text.lower()
+
+        # Try to update with invalid bool string
+        result = await update_character.run({"name_or_id": "TestChar", "inspiration": "maybe"})
+        result_text = result.content[0].text
+        assert "❌" in result_text
+        assert "not a valid boolean" in result_text.lower()
+
+    async def test_update_character_string_out_of_range(self, storage_with_campaign):
+        """Test that string values outside valid ranges are rejected."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "TestChar", "character_class": "Paladin", "class_level": 5, "race": "Dwarf"}
+        )
+
+        # Level too high
+        result = await update_character.run({"name_or_id": "TestChar", "level": "21"})
+        result_text = result.content[0].text
+        assert "❌" in result_text
+        assert "greater than maximum" in result_text.lower()
+
+        # Level too low
+        result = await update_character.run({"name_or_id": "TestChar", "level": "0"})
+        result_text = result.content[0].text
+        assert "❌" in result_text
+        assert "less than minimum" in result_text.lower()
+
+        # Ability score too high
+        result = await update_character.run({"name_or_id": "TestChar", "strength": "31"})
+        result_text = result.content[0].text
+        assert "❌" in result_text
+        assert "greater than maximum" in result_text.lower()
+
     async def test_bulk_update_characters(self, storage_with_campaign):
         """Test bulk updating multiple characters."""
         override_storage(storage_with_campaign)
@@ -220,6 +442,852 @@ class TestAPI:
         assert len(result.content) == 1
         assert "Short Sword" in result.content[0].text
         assert "Frodo" in result.content[0].text
+
+    async def test_remove_item_from_character_complete(self, storage_with_campaign):
+        """Test removing all of an item from character inventory."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Sam", "character_class": "Fighter", "class_level": 2, "race": "Halfling"}
+        )
+
+        # Add an item
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Sam",
+                "item_name": "Rope",
+                "item_type": "misc",
+                "quantity": 1,
+            }
+        )
+
+        # Verify item was added
+        character = storage_with_campaign.get_character("Sam")
+        assert len(character.inventory) == 1
+        assert character.inventory[0].name == "Rope"
+
+        # Remove the item (no quantity specified = remove all)
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Sam",
+                "item_name": "Rope",
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 1x Rope" in result.content[0].text
+        assert "Sam" in result.content[0].text
+
+        # Verify item was removed
+        character = storage_with_campaign.get_character("Sam")
+        assert len(character.inventory) == 0
+
+    async def test_remove_item_from_character_partial(self, storage_with_campaign):
+        """Test removing partial quantity of an item."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Merry", "character_class": "Rogue", "class_level": 3, "race": "Halfling"}
+        )
+
+        # Add multiple of an item
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Merry",
+                "item_name": "Healing Potion",
+                "item_type": "consumable",
+                "quantity": 5,
+            }
+        )
+
+        # Remove partial quantity
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Merry",
+                "item_name": "Healing Potion",
+                "quantity": 2,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 2x Healing Potion" in result.content[0].text
+        assert "3 remaining" in result.content[0].text
+
+        # Verify quantity was reduced
+        character = storage_with_campaign.get_character("Merry")
+        assert len(character.inventory) == 1
+        assert character.inventory[0].name == "Healing Potion"
+        assert character.inventory[0].quantity == 3
+
+    async def test_remove_item_from_character_exact_quantity(self, storage_with_campaign):
+        """Test removing exact quantity removes the item entirely."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Pippin", "character_class": "Bard", "class_level": 2, "race": "Halfling"}
+        )
+
+        # Add items
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Pippin",
+                "item_name": "Torch",
+                "item_type": "misc",
+                "quantity": 3,
+            }
+        )
+
+        # Remove exact quantity
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Pippin",
+                "item_name": "Torch",
+                "quantity": 3,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 3x Torch" in result.content[0].text
+
+        # Verify item was removed entirely
+        character = storage_with_campaign.get_character("Pippin")
+        assert len(character.inventory) == 0
+
+    async def test_remove_item_from_character_more_than_available(self, storage_with_campaign):
+        """Test removing more than available removes all."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Aragorn", "character_class": "Ranger", "class_level": 5, "race": "Human"}
+        )
+
+        # Add items
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Aragorn",
+                "item_name": "Arrow",
+                "item_type": "weapon",
+                "quantity": 10,
+            }
+        )
+
+        # Try to remove more than available
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Aragorn",
+                "item_name": "Arrow",
+                "quantity": 20,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 10x Arrow" in result.content[0].text
+
+        # Verify all items were removed
+        character = storage_with_campaign.get_character("Aragorn")
+        assert len(character.inventory) == 0
+
+    async def test_remove_item_from_character_not_found(self, storage_with_campaign):
+        """Test removing item that doesn't exist."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Legolas", "character_class": "Ranger", "class_level": 5, "race": "Elf"}
+        )
+
+        # Try to remove non-existent item
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Legolas",
+                "item_name": "Magic Sword",
+            }
+        )
+        assert len(result.content) == 1
+        assert "not found in" in result.content[0].text
+        assert "Legolas" in result.content[0].text
+
+    async def test_remove_item_from_character_case_insensitive(self, storage_with_campaign):
+        """Test item name matching is case-insensitive."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Gimli", "character_class": "Fighter", "class_level": 4, "race": "Dwarf"}
+        )
+
+        # Add item with specific casing
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Gimli",
+                "item_name": "Battle Axe",
+                "item_type": "weapon",
+                "quantity": 1,
+            }
+        )
+
+        # Remove with different casing
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "Gimli",
+                "item_name": "battle axe",
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 1x Battle Axe" in result.content[0].text
+
+        # Verify item was removed
+        character = storage_with_campaign.get_character("Gimli")
+        assert len(character.inventory) == 0
+
+    async def test_remove_item_from_character_by_id(self, storage_with_campaign):
+        """Test removing item using character ID."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Boromir", "character_class": "Fighter", "class_level": 6, "race": "Human"}
+        )
+
+        # Get character ID
+        character = storage_with_campaign.get_character("Boromir")
+        char_id = str(character.id)
+
+        # Add item
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": char_id,
+                "item_name": "Shield",
+                "item_type": "armor",
+                "quantity": 1,
+            }
+        )
+
+        # Remove item using ID
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": char_id,
+                "item_name": "Shield",
+            }
+        )
+        assert len(result.content) == 1
+        assert "Removed 1x Shield" in result.content[0].text
+
+    async def test_remove_item_character_not_found(self, storage_with_campaign):
+        """Test removing item from non-existent character."""
+        override_storage(storage_with_campaign)
+
+        result = await remove_item_from_character.run(
+            {
+                "character_name_or_id": "NonExistent",
+                "item_name": "Sword",
+            }
+        )
+        assert len(result.content) == 1
+        assert "Character 'NonExistent' not found" in result.content[0].text
+
+    async def test_get_character_with_inventory(self, storage_with_campaign):
+        """Test get_character displays inventory correctly."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Bilbo", "character_class": "Rogue", "class_level": 5, "race": "Halfling"}
+        )
+
+        # Add items to character's inventory
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Bilbo",
+                "item_name": "Longsword",
+                "item_type": "weapon",
+                "quantity": 1,
+            }
+        )
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Bilbo",
+                "item_name": "Healing Potion",
+                "item_type": "consumable",
+                "quantity": 3,
+            }
+        )
+        await add_item_to_character.run(
+            {
+                "character_name_or_id": "Bilbo",
+                "item_name": "Rope",
+                "item_type": "misc",
+                "quantity": 1,
+            }
+        )
+
+        # Get character and verify inventory is displayed
+        result = await get_character.run({"name_or_id": "Bilbo"})
+        assert len(result.content) == 1
+        text = result.content[0].text
+
+        # Check inventory header
+        assert "**Inventory:** 3 items" in text
+
+        # Check each item is listed with name, quantity, and type
+        assert "• Longsword (x1) - weapon" in text
+        assert "• Healing Potion (x3) - consumable" in text
+        assert "• Rope (x1) - misc" in text
+
+    async def test_get_character_with_spell_slots(self, storage_with_campaign):
+        """Test get_character displays spell slots correctly."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Merlin", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Get the character from storage and add spell slots
+        character = storage_with_campaign.get_character("Merlin")
+        character.spell_slots = {1: 4, 2: 3, 3: 2}
+        character.spell_slots_used = {1: 2, 2: 1, 3: 0}
+        storage_with_campaign.update_character(str(character.id), spell_slots=character.spell_slots, spell_slots_used=character.spell_slots_used)
+
+        # Get character and verify spell slots are displayed
+        result = await get_character.run({"name_or_id": "Merlin"})
+        assert len(result.content) == 1
+        text = result.content[0].text
+
+        # Check spell slots section
+        assert "**Spell Slots:**" in text
+        assert "• Level 1: 4 (2 used)" in text
+        assert "• Level 2: 3 (1 used)" in text
+        assert "• Level 3: 2 (0 used)" in text
+
+    async def test_get_character_with_spells_known(self, storage_with_campaign):
+        """Test get_character displays spells known correctly."""
+        override_storage(storage_with_campaign)
+        from gamemaster_mcp.models import Spell
+
+        # Create a character
+        await create_character.run(
+            {"name": "Gandalf", "character_class": "Wizard", "class_level": 10, "race": "Human"}
+        )
+
+        # Get the character from storage and add spells
+        character = storage_with_campaign.get_character("Gandalf")
+        character.spells_known = [
+            Spell(
+                name="Fireball",
+                level=3,
+                school="Evocation",
+                casting_time="1 action",
+                duration="Instantaneous",
+                components=["V", "S", "M"],
+                description="A bright streak flashes...",
+                prepared=True
+            ),
+            Spell(
+                name="Magic Missile",
+                level=1,
+                school="Evocation",
+                casting_time="1 action",
+                duration="Instantaneous",
+                components=["V", "S"],
+                description="You create three glowing darts...",
+                prepared=False
+            ),
+            Spell(
+                name="Shield",
+                level=1,
+                school="Abjuration",
+                casting_time="1 reaction",
+                duration="1 round",
+                components=["V", "S"],
+                description="An invisible barrier of magical force...",
+                prepared=True
+            ),
+        ]
+        storage_with_campaign.update_character(str(character.id), spells_known=character.spells_known)
+
+        # Get character and verify spells are displayed
+        result = await get_character.run({"name_or_id": "Gandalf"})
+        assert len(result.content) == 1
+        text = result.content[0].text
+
+        # Check spells section
+        assert "**Spells Known:** 3 spells" in text
+        assert "• [✓] Fireball (Level 3)" in text
+        assert "• [ ] Magic Missile (Level 1)" in text
+        assert "• [✓] Shield (Level 1)" in text
+
+    async def test_get_character_empty_inventory_and_spells(self, storage_with_campaign):
+        """Test get_character with no inventory or spells."""
+        override_storage(storage_with_campaign)
+        # Create a character with no items or spells
+        await create_character.run(
+            {"name": "Noob", "character_class": "Fighter", "class_level": 1, "race": "Human"}
+        )
+
+        # Get character
+        result = await get_character.run({"name_or_id": "Noob"})
+        assert len(result.content) == 1
+        text = result.content[0].text
+
+        # Should show 0 items and no spell/inventory sections beyond headers
+        assert "**Inventory:** 0 items" in text
+        # Should NOT show spell slots or spells sections if they don't exist
+        assert "**Spell Slots:**" not in text
+        assert "**Spells Known:**" not in text
+
+    async def test_add_spell_to_character(self, storage_with_campaign):
+        """Test adding a single spell to a character."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard1", "character_class": "Wizard", "class_level": 3, "race": "Human"}
+        )
+
+        # Add a spell
+        result = await add_spell_to_character.run(
+            {
+                "character_name_or_id": "Wizard1",
+                "spell_name": "Fireball",
+                "spell_level": 3,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Fireball" in result.content[0].text
+        assert "Level 3" in result.content[0].text
+        assert "unprepared" in result.content[0].text
+
+        # Verify spell was added
+        character = storage_with_campaign.get_character("Wizard1")
+        assert len(character.spells_known) == 1
+        assert character.spells_known[0].name == "Fireball"
+        assert character.spells_known[0].level == 3
+        assert character.spells_known[0].prepared is False
+
+    async def test_add_spell_to_character_duplicate(self, storage_with_campaign):
+        """Test adding a duplicate spell."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard2", "character_class": "Wizard", "class_level": 3, "race": "Elf"}
+        )
+
+        # Add a spell
+        await add_spell_to_character.run(
+            {
+                "character_name_or_id": "Wizard2",
+                "spell_name": "Magic Missile",
+                "spell_level": 1,
+            }
+        )
+
+        # Try to add same spell again
+        result = await add_spell_to_character.run(
+            {
+                "character_name_or_id": "Wizard2",
+                "spell_name": "Magic Missile",
+                "spell_level": 1,
+            }
+        )
+        assert len(result.content) == 1
+        assert "already knows" in result.content[0].text
+
+        # Verify only one spell exists
+        character = storage_with_campaign.get_character("Wizard2")
+        assert len(character.spells_known) == 1
+
+    async def test_add_spell_to_character_case_insensitive(self, storage_with_campaign):
+        """Test spell duplicate detection is case-insensitive."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard3", "character_class": "Wizard", "class_level": 3, "race": "Human"}
+        )
+
+        # Add a spell
+        await add_spell_to_character.run(
+            {
+                "character_name_or_id": "Wizard3",
+                "spell_name": "Shield",
+                "spell_level": 1,
+            }
+        )
+
+        # Try to add same spell with different casing
+        result = await add_spell_to_character.run(
+            {
+                "character_name_or_id": "Wizard3",
+                "spell_name": "SHIELD",
+                "spell_level": 1,
+            }
+        )
+        assert "already knows" in result.content[0].text
+
+        # Verify only one spell exists
+        character = storage_with_campaign.get_character("Wizard3")
+        assert len(character.spells_known) == 1
+
+    async def test_add_spell_character_not_found(self, storage_with_campaign):
+        """Test adding spell to non-existent character."""
+        override_storage(storage_with_campaign)
+
+        result = await add_spell_to_character.run(
+            {
+                "character_name_or_id": "NonExistent",
+                "spell_name": "Fireball",
+                "spell_level": 3,
+            }
+        )
+        assert len(result.content) == 1
+        assert "not found" in result.content[0].text
+
+    async def test_prepare_spells(self, storage_with_campaign):
+        """Test preparing spells."""
+        override_storage(storage_with_campaign)
+        # Create a character and add spells
+        await create_character.run(
+            {"name": "Wizard4", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard4", "spell_name": "Fireball", "spell_level": 3}
+        )
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard4", "spell_name": "Shield", "spell_level": 1}
+        )
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard4", "spell_name": "Magic Missile", "spell_level": 1}
+        )
+
+        # Prepare some spells
+        result = await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard4",
+                "spell_names": ["Fireball", "Shield"],
+            }
+        )
+        assert len(result.content) == 1
+        assert "Prepared 2 spell(s)" in result.content[0].text
+
+        # Verify prepared status
+        character = storage_with_campaign.get_character("Wizard4")
+        for spell in character.spells_known:
+            if spell.name in ["Fireball", "Shield"]:
+                assert spell.prepared is True
+            else:
+                assert spell.prepared is False
+
+    async def test_prepare_spells_replaces_previous(self, storage_with_campaign):
+        """Test that prepare_spells replaces the previous selection."""
+        override_storage(storage_with_campaign)
+        # Create a character and add spells
+        await create_character.run(
+            {"name": "Wizard5", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard5", "spell_name": "Fireball", "spell_level": 3}
+        )
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard5", "spell_name": "Shield", "spell_level": 1}
+        )
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard5", "spell_name": "Magic Missile", "spell_level": 1}
+        )
+
+        # Prepare Fireball and Shield
+        await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard5",
+                "spell_names": ["Fireball", "Shield"],
+            }
+        )
+
+        # Now prepare only Magic Missile (should unprepare the others)
+        result = await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard5",
+                "spell_names": ["Magic Missile"],
+            }
+        )
+        assert "Prepared 1 spell(s)" in result.content[0].text
+        assert "Unprepared 2 spell(s)" in result.content[0].text
+
+        # Verify only Magic Missile is prepared
+        character = storage_with_campaign.get_character("Wizard5")
+        for spell in character.spells_known:
+            if spell.name == "Magic Missile":
+                assert spell.prepared is True
+            else:
+                assert spell.prepared is False
+
+    async def test_prepare_spells_not_found(self, storage_with_campaign):
+        """Test preparing a spell that doesn't exist."""
+        override_storage(storage_with_campaign)
+        # Create a character and add spells
+        await create_character.run(
+            {"name": "Wizard6", "character_class": "Wizard", "class_level": 3, "race": "Elf"}
+        )
+
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard6", "spell_name": "Fireball", "spell_level": 3}
+        )
+
+        # Try to prepare a spell that doesn't exist
+        result = await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard6",
+                "spell_names": ["Fireball", "NonExistentSpell"],
+            }
+        )
+        assert "Warning" in result.content[0].text
+        assert "nonexistentspell" in result.content[0].text.lower()
+
+    async def test_prepare_spells_no_spells_known(self, storage_with_campaign):
+        """Test preparing spells when character has no spells."""
+        override_storage(storage_with_campaign)
+        # Create a character with no spells
+        await create_character.run(
+            {"name": "Wizard7", "character_class": "Wizard", "class_level": 3, "race": "Human"}
+        )
+
+        # Try to prepare spells
+        result = await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard7",
+                "spell_names": ["Fireball"],
+            }
+        )
+        assert "doesn't know any spells" in result.content[0].text
+
+    async def test_prepare_spells_case_insensitive(self, storage_with_campaign):
+        """Test prepare_spells is case-insensitive."""
+        override_storage(storage_with_campaign)
+        # Create a character and add spells
+        await create_character.run(
+            {"name": "Wizard8", "character_class": "Wizard", "class_level": 3, "race": "Human"}
+        )
+
+        await add_spell_to_character.run(
+            {"character_name_or_id": "Wizard8", "spell_name": "Fireball", "spell_level": 3}
+        )
+
+        # Prepare spell with different casing
+        result = await prepare_spells.run(
+            {
+                "character_name_or_id": "Wizard8",
+                "spell_names": ["FIREBALL"],
+            }
+        )
+        assert "Prepared 1 spell(s)" in result.content[0].text
+
+        # Verify spell is prepared
+        character = storage_with_campaign.get_character("Wizard8")
+        assert character.spells_known[0].prepared is True
+
+    async def test_update_spell_slot_initial_setup(self, storage_with_campaign):
+        """Test setting up spell slots initially."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard9", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Setup level 1 spell slots
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard9",
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 0,
+            }
+        )
+        assert len(result.content) == 1
+        assert "level 1 spell slots" in result.content[0].text
+        assert "4 total" in result.content[0].text
+        assert "0 used" in result.content[0].text
+        assert "4 remaining" in result.content[0].text
+
+        # Verify in storage
+        character = storage_with_campaign.get_character("Wizard9")
+        assert character.spell_slots[1] == 4
+        assert character.spell_slots_used[1] == 0
+
+    async def test_update_spell_slot_using_slots(self, storage_with_campaign):
+        """Test using spell slots (casting spells)."""
+        override_storage(storage_with_campaign)
+        # Create a character and setup slots
+        await create_character.run(
+            {"name": "Wizard10", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Setup slots
+        await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard10",
+                "spell_level": 2,
+                "max_slots": 3,
+                "slots_used": 0,
+            }
+        )
+
+        # Use 2 slots
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard10",
+                "spell_level": 2,
+                "max_slots": 3,
+                "slots_used": 2,
+            }
+        )
+        assert "2 used" in result.content[0].text
+        assert "1 remaining" in result.content[0].text
+
+        # Verify in storage
+        character = storage_with_campaign.get_character("Wizard10")
+        assert character.spell_slots[2] == 3
+        assert character.spell_slots_used[2] == 2
+
+    async def test_update_spell_slot_recovery(self, storage_with_campaign):
+        """Test recovering spell slots (rest)."""
+        override_storage(storage_with_campaign)
+        # Create a character and use some slots
+        await create_character.run(
+            {"name": "Wizard11", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Setup and use slots
+        await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard11",
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 3,
+            }
+        )
+
+        # Recover all slots
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard11",
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 0,
+            }
+        )
+        assert "0 used" in result.content[0].text
+        assert "4 remaining" in result.content[0].text
+
+        # Verify in storage
+        character = storage_with_campaign.get_character("Wizard11")
+        assert character.spell_slots_used[1] == 0
+
+    async def test_update_spell_slot_multiple_levels(self, storage_with_campaign):
+        """Test updating spell slots for multiple spell levels."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard12", "character_class": "Wizard", "class_level": 9, "race": "Human"}
+        )
+
+        # Setup multiple spell levels
+        await update_spell_slot.run(
+            {"character_name_or_id": "Wizard12", "spell_level": 1, "max_slots": 4, "slots_used": 1}
+        )
+        await update_spell_slot.run(
+            {"character_name_or_id": "Wizard12", "spell_level": 2, "max_slots": 3, "slots_used": 0}
+        )
+        await update_spell_slot.run(
+            {"character_name_or_id": "Wizard12", "spell_level": 3, "max_slots": 3, "slots_used": 2}
+        )
+
+        # Verify all levels
+        character = storage_with_campaign.get_character("Wizard12")
+        assert character.spell_slots[1] == 4
+        assert character.spell_slots_used[1] == 1
+        assert character.spell_slots[2] == 3
+        assert character.spell_slots_used[2] == 0
+        assert character.spell_slots[3] == 3
+        assert character.spell_slots_used[3] == 2
+
+    async def test_update_spell_slot_exceeds_max(self, storage_with_campaign):
+        """Test error when slots_used exceeds max_slots."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard13", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Try to use more slots than available
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": "Wizard13",
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 5,
+            }
+        )
+        assert "Error" in result.content[0].text
+        assert "cannot exceed" in result.content[0].text
+
+    async def test_update_spell_slot_character_not_found(self, storage_with_campaign):
+        """Test updating spell slots for non-existent character."""
+        override_storage(storage_with_campaign)
+
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": "NonExistent",
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 0,
+            }
+        )
+        assert "not found" in result.content[0].text
+
+    async def test_update_spell_slot_by_character_id(self, storage_with_campaign):
+        """Test updating spell slots using character ID."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard14", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Get character ID
+        character = storage_with_campaign.get_character("Wizard14")
+        char_id = str(character.id)
+
+        # Update spell slots using ID
+        result = await update_spell_slot.run(
+            {
+                "character_name_or_id": char_id,
+                "spell_level": 1,
+                "max_slots": 4,
+                "slots_used": 1,
+            }
+        )
+        assert "Wizard14" in result.content[0].text
+        assert "level 1 spell slots" in result.content[0].text
+
+        # Verify
+        character = storage_with_campaign.get_character("Wizard14")
+        assert character.spell_slots[1] == 4
+        assert character.spell_slots_used[1] == 1
+
+    async def test_update_spell_slot_all_levels(self, storage_with_campaign):
+        """Test updating spell slots for all levels 1-9."""
+        override_storage(storage_with_campaign)
+        # Create a high-level character
+        await create_character.run(
+            {"name": "Wizard15", "character_class": "Wizard", "class_level": 20, "race": "Human"}
+        )
+
+        # Setup spell slots for all levels
+        for level in range(1, 10):
+            await update_spell_slot.run(
+                {
+                    "character_name_or_id": "Wizard15",
+                    "spell_level": level,
+                    "max_slots": level,
+                    "slots_used": 0,
+                }
+            )
+
+        # Verify all levels were set
+        character = storage_with_campaign.get_character("Wizard15")
+        for level in range(1, 10):
+            assert character.spell_slots[level] == level
+            assert character.spell_slots_used[level] == 0
 
     async def test_list_characters(self, storage_with_campaign):
         """Test listing all characters."""

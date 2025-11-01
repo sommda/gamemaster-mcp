@@ -806,12 +806,39 @@ class DnDStorage:
         logger.debug(f"✅ Found character '{char.name}'")
         return char
 
-    def update_character(self, name_or_id: str, **kwargs) -> None:
+    def update_character(
+        self,
+        name_or_id: str,
+        name: str | None = None,
+        player_name: str | None = None,
+        description: str | None = None,
+        bio: str | None = None,
+        background: str | None = None,
+        alignment: str | None = None,
+        hit_points_current: int | None = None,
+        hit_points_max: int | None = None,
+        temporary_hit_points: int | None = None,
+        armor_class: int | None = None,
+        inspiration: bool | None = None,
+        notes: str | None = None,
+        strength: int | None = None,
+        dexterity: int | None = None,
+        constitution: int | None = None,
+        intelligence: int | None = None,
+        wisdom: int | None = None,
+        charisma: int | None = None,
+        level: int | None = None,
+        # Spell-related fields for internal use by spell/inventory management tools
+        inventory: list | None = None,
+        spell_slots: dict | None = None,
+        spell_slots_used: dict | None = None,
+        spells_known: list | None = None,
+    ) -> None:
         """Update a character's data."""
         if not self._current_campaign:
             raise ValueError("No current campaign")
 
-        logger.info(f"📝 Attempting to update character '{name_or_id}' with data: {kwargs}")
+        logger.info(f"📝 Attempting to update character '{name_or_id}'")
         character = self._find_character(name_or_id)
         if not character:
             e = ValueError(f"❌ Character '{name_or_id}' not found!")
@@ -819,29 +846,77 @@ class DnDStorage:
             raise e
 
         original_name = character.name
-        new_name = kwargs.get("name")
 
-        for key, value in kwargs.items():
-            if key == 'level':
-                character.character_class.level = value
-            elif hasattr(character, key):
-                logger.debug(f"📝 Updating character '{original_name}': {key} -> {value}")
-                setattr(character, key, value)
+        # Update basic fields
+        if name is not None:
+            character.name = name
+        if player_name is not None:
+            character.player_name = player_name
+        if description is not None:
+            character.description = description
+        if bio is not None:
+            character.bio = bio
+        if background is not None:
+            character.background = background
+        if alignment is not None:
+            character.alignment = alignment
+        if notes is not None:
+            character.notes = notes
+
+        # Update combat stats
+        if hit_points_current is not None:
+            character.hit_points_current = hit_points_current
+        if hit_points_max is not None:
+            character.hit_points_max = hit_points_max
+        if temporary_hit_points is not None:
+            character.temporary_hit_points = temporary_hit_points
+        if armor_class is not None:
+            character.armor_class = armor_class
+        if inspiration is not None:
+            character.inspiration = inspiration
+
+        # Update ability scores
+        if strength is not None:
+            character.abilities["strength"].score = strength
+        if dexterity is not None:
+            character.abilities["dexterity"].score = dexterity
+        if constitution is not None:
+            character.abilities["constitution"].score = constitution
+        if intelligence is not None:
+            character.abilities["intelligence"].score = intelligence
+        if wisdom is not None:
+            character.abilities["wisdom"].score = wisdom
+        if charisma is not None:
+            character.abilities["charisma"].score = charisma
+
+        # Update level (special handling for character class)
+        if level is not None:
+            character.character_class.level = level
+
+        # Update equipment and spells (used by dedicated tools)
+        if inventory is not None:
+            character.inventory = inventory
+        if spell_slots is not None:
+            character.spell_slots = spell_slots
+        if spell_slots_used is not None:
+            character.spell_slots_used = spell_slots_used
+        if spells_known is not None:
+            character.spells_known = spells_known
 
         character.updated_at = datetime.now()
 
-        if new_name and new_name != original_name:
-            # If name changed, update the dictionary key
+        # Handle name change
+        if name is not None and name != original_name:
             logger.debug(
-                f"🏷️ Character name changed from '{original_name}' to '{new_name}'. Updating dictionary key."
+                f"🏷️ Character name changed from '{original_name}' to '{name}'. Updating dictionary key."
             )
-            self._current_campaign.characters[new_name] = self._current_campaign.characters.pop(
+            self._current_campaign.characters[name] = self._current_campaign.characters.pop(
                 original_name
             )
 
         self._current_campaign.updated_at = datetime.now()
         self._save_campaign()
-        logger.info(f"✅ Character '{new_name or original_name}' updated successfully.")
+        logger.info(f"✅ Character '{character.name}' updated successfully.")
 
     def remove_character(self, name_or_id: str) -> None:
         """Remove a character from the campaign."""

@@ -34,6 +34,7 @@ from .models import (
     Quest,
     Race,
     SessionNote,
+    Spell,
     Transcript,
     TranscriptAdventure,
     TranscriptCombat,
@@ -47,9 +48,22 @@ from .tool_with_logging import tool_with_logging
 
 logger = logging.getLogger("gamemaster-mcp")
 
+# Set root logger to WARNING to suppress most library logs
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
 )
+
+# Keep gamemaster-mcp logs at INFO level
+logger.setLevel(logging.INFO)
+
+# Explicitly suppress verbose libraries
+logging.getLogger("mcp").setLevel(logging.ERROR)
+logging.getLogger("fastmcp").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+logging.getLogger("uvicorn").setLevel(logging.ERROR)
+logging.getLogger("starlette").setLevel(logging.ERROR)
+logging.getLogger("sse_starlette").setLevel(logging.ERROR)
 
 if not load_dotenv():
     logger.warning(
@@ -307,6 +321,27 @@ Level {character.character_class.level} {character.race.name} {character.charact
 **Inventory:** {len(character.inventory)} items
 """
 
+    # Add detailed inventory list
+    if character.inventory:
+        char_info += "\n"
+        for item in character.inventory:
+            char_info += f"• {item.name} (x{item.quantity}) - {item.item_type}\n"
+
+    # Add spell slots section
+    if character.spell_slots:
+        char_info += "\n**Spell Slots:**\n"
+        for level in sorted(character.spell_slots.keys()):
+            max_slots = character.spell_slots[level]
+            used_slots = character.spell_slots_used.get(level, 0)
+            char_info += f"• Level {level}: {max_slots} ({used_slots} used)\n"
+
+    # Add spells section
+    if character.spells_known:
+        char_info += f"\n**Spells Known:** {len(character.spells_known)} spells\n"
+        for spell in character.spells_known:
+            prepared_marker = "✓" if spell.prepared else " "
+            char_info += f"• [{prepared_marker}] {spell.name} (Level {spell.level})\n"
+
     return char_info
 
 
@@ -314,41 +349,34 @@ Level {character.character_class.level} {character.race.name} {character.charact
 def update_character(
     name_or_id: Annotated[str, Field(description="The name or ID of the character to update.")],
     name: Annotated[
-        str | None,
+        str,
         Field(
             description="New character name. If you change this, you must use the character's ID to identify them."
         ),
-    ] = None,
-    player_name: Annotated[
-        str | None, Field(description="The name of the player in control of this character")
-    ] = None,
+    ] | None = None,
+    player_name: Annotated[str, Field(description="The name of the player in control of this character")] | None = None,
     description: Annotated[
-        str | None,
+        str,
         Field(description="A brief description of the character's appearance and demeanor."),
-    ] = None,
+    ] | None = None,
     bio: Annotated[
-        str | None, Field(description="The character's backstory, personality, and motivations.")
-    ] = None,
-    background: Annotated[str | None, Field(description="Character background")] = None,
-    alignment: Annotated[str | None, Field(description="Character alignment")] = None,
-    hit_points_current: Annotated[int | None, Field(description="Current hit points", ge=0)] = None,
-    hit_points_max: Annotated[int | None, Field(description="Maximum hit points", ge=1)] = None,
-    temporary_hit_points: Annotated[
-        int | None, Field(description="Temporary hit points", ge=0)
-    ] = None,
-    armor_class: Annotated[int | None, Field(description="Armor class")] = None,
-    inspiration: Annotated[bool | None, Field(description="Inspiration status")] = None,
-    notes: Annotated[str | None, Field(description="Additional notes about the character")] = None,
-    strength: Annotated[int | None, Field(description="Strength score", ge=1, le=30)] = None,
-    dexterity: Annotated[int | None, Field(description="Dexterity score", ge=1, le=30)] = None,
-    constitution: Annotated[
-        int | None, Field(description="Constitution score", ge=1, le=30)
-    ] = None,
-    intelligence: Annotated[
-        int | None, Field(description="Intelligence score", ge=1, le=30)
-    ] = None,
-    wisdom: Annotated[int | None, Field(description="Wisdom score", ge=1, le=30)] = None,
-    charisma: Annotated[int | None, Field(description="Charisma score", ge=1, le=30)] = None,
+        str, Field(description="The character's backstory, personality, and motivations.")
+    ] | None = None,
+    background: Annotated[str, Field(description="Character background")] | None = None,
+    alignment: Annotated[str, Field(description="Character alignment")] | None = None,
+    hit_points_current: int | str | None = None,
+    hit_points_max: int | str | None = None,
+    temporary_hit_points: int | str | None = None,
+    armor_class: int | str | None = None,
+    inspiration: bool | str | None = None,
+    notes: Annotated[str, Field(description="Additional notes about the character")] | None = None,
+    strength: int | str | None = None,
+    dexterity: int | str | None = None,
+    constitution: int | str | None = None,
+    intelligence: int | str | None = None,
+    wisdom: int | str | None = None,
+    charisma: int | str | None = None,
+    level: int | str | None = None,
 ) -> str:
     """Update a character's properties."""
     character = storage.get_character(name_or_id)
@@ -358,6 +386,49 @@ def update_character(
     updates = {
         k: v for k, v in locals().items() if v is not None and k not in ["name_or_id", "character"]
     }
+
+    # Manual type conversion for int parameters (FastMCP bug workaround)
+    int_fields = {
+        "hit_points_current": (0, None),
+        "hit_points_max": (1, None),
+        "temporary_hit_points": (0, None),
+        "armor_class": (0, None),
+        "strength": (1, 30),
+        "dexterity": (1, 30),
+        "constitution": (1, 30),
+        "intelligence": (1, 30),
+        "wisdom": (1, 30),
+        "charisma": (1, 30),
+        "level": (1, 20),
+    }
+
+    for field, (min_val, max_val) in int_fields.items():
+        if field in updates:
+            value = updates[field]
+            if isinstance(value, str):
+                try:
+                    value = int(value)
+                    updates[field] = value
+                except ValueError:
+                    return f"❌ Invalid value for {field}: '{value}' is not a valid integer."
+
+            # Validate range
+            if value < min_val:
+                return f"❌ Invalid value for {field}: {value} is less than minimum {min_val}."
+            if max_val is not None and value > max_val:
+                return f"❌ Invalid value for {field}: {value} is greater than maximum {max_val}."
+
+    # Handle bool conversion
+    if "inspiration" in updates:
+        value = updates["inspiration"]
+        if isinstance(value, str):
+            if value.lower() in ("true", "1", "yes"):
+                updates["inspiration"] = True
+            elif value.lower() in ("false", "0", "no"):
+                updates["inspiration"] = False
+            else:
+                return f"❌ Invalid value for inspiration: '{value}' is not a valid boolean."
+
     updated_fields = [f"{key.replace('_', ' ')}: {value}" for key, value in updates.items()]
 
     if not updates:
@@ -505,6 +576,195 @@ def add_item_to_character(
     storage.update_character(str(character.id), inventory=character.inventory)
 
     return f"Added {item.quantity}x {item.name} to {character.name}'s inventory"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def remove_item_from_character(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to remove the item from.")
+    ],
+    item_name: Annotated[str, Field(description="Name of the item to remove")],
+    quantity: Annotated[int | None, Field(description="Quantity to remove (removes all if not specified)", ge=1)] = None,
+) -> str:
+    """Remove an item from a character's inventory."""
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Find the item in inventory
+    item_to_remove = None
+    item_index = None
+    for idx, item in enumerate(character.inventory):
+        if item.name.lower() == item_name.lower():
+            item_to_remove = item
+            item_index = idx
+            break
+
+    if not item_to_remove:
+        return f"❌ Item '{item_name}' not found in {character.name}'s inventory!"
+
+    # Determine how much to remove
+    remove_quantity = quantity if quantity is not None else item_to_remove.quantity
+
+    if remove_quantity >= item_to_remove.quantity:
+        # Remove the entire item
+        character.inventory.pop(item_index)
+        storage.update_character(str(character.id), inventory=character.inventory)
+        return f"Removed {item_to_remove.quantity}x {item_to_remove.name} from {character.name}'s inventory"
+    else:
+        # Reduce the quantity
+        item_to_remove.quantity -= remove_quantity
+        storage.update_character(str(character.id), inventory=character.inventory)
+        return f"Removed {remove_quantity}x {item_to_remove.name} from {character.name}'s inventory ({item_to_remove.quantity} remaining)"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_spell_to_character(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to add the spell to.")
+    ],
+    spell_name: Annotated[str, Field(description="Name of the spell to add")],
+    spell_level: Annotated[int, Field(description="Spell level (0-9)", ge=0, le=9)],
+) -> str:
+    """Add a spell to a character's known spells list.
+
+    The spell is added as unprepared. If a spell with the same name already exists,
+    it will not be added again (duplicates are ignored).
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Check if spell already exists (case-insensitive)
+    for existing_spell in character.spells_known:
+        if existing_spell.name.lower() == spell_name.lower():
+            return f"⚠️ {character.name} already knows '{spell_name}'"
+
+    # Create minimal spell (other properties can be set later)
+    new_spell = Spell(
+        name=spell_name,
+        level=spell_level,
+        school="",  # Default, can be updated later
+        casting_time="",  # Default, can be updated later
+        duration="",  # Default, can be updated later
+        components=[],  # Default, can be updated later
+        description="",  # Default, can be updated later
+        prepared=False,
+    )
+
+    character.spells_known.append(new_spell)
+    storage.update_character(str(character.id), spells_known=character.spells_known)
+
+    return f"Added '{spell_name}' (Level {spell_level}) to {character.name}'s known spells (unprepared)"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def prepare_spells(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to prepare spells for.")
+    ],
+    spell_names: Annotated[
+        list[str],
+        Field(description="List of spell names to mark as prepared. Any spells NOT in this list will be marked as unprepared.")
+    ],
+) -> str:
+    """Prepare specific spells for a character.
+
+    This tool sets which spells are prepared for use. IMPORTANT: Any spells NOT included in the
+    spell_names list will be marked as UNPREPARED. This completely replaces the current prepared
+    spell selection.
+
+    Example: If a character knows 10 spells and you pass 3 spell names, those 3 will be prepared
+    and the other 7 will become unprepared.
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    if not character.spells_known:
+        return f"❌ {character.name} doesn't know any spells yet!"
+
+    # Create case-insensitive lookup of spell names to prepare
+    spells_to_prepare = {name.lower() for name in spell_names}
+
+    # Track changes
+    prepared_count = 0
+    unprepared_count = 0
+    not_found = []
+
+    # Update prepared status for all spells
+    for spell in character.spells_known:
+        if spell.name.lower() in spells_to_prepare:
+            if not spell.prepared:
+                spell.prepared = True
+                prepared_count += 1
+            spells_to_prepare.remove(spell.name.lower())  # Mark as found
+        else:
+            if spell.prepared:
+                spell.prepared = False
+                unprepared_count += 1
+
+    # Any remaining names in spells_to_prepare weren't found
+    not_found = list(spells_to_prepare)
+
+    storage.update_character(str(character.id), spells_known=character.spells_known)
+
+    # Build response message
+    parts = []
+    if prepared_count > 0:
+        parts.append(f"Prepared {prepared_count} spell(s)")
+    if unprepared_count > 0:
+        parts.append(f"Unprepared {unprepared_count} spell(s)")
+
+    result = f"{character.name}: {', '.join(parts)}" if parts else f"{character.name}: No changes to prepared spells"
+
+    if not_found:
+        result += f"\n⚠️ Warning: Could not find these spells: {', '.join(not_found)}"
+
+    return result
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def update_spell_slot(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to update spell slots for.")
+    ],
+    spell_level: Annotated[int, Field(description="Spell level (1-9)", ge=1, le=9)],
+    max_slots: Annotated[int, Field(description="Maximum number of spell slots for this level", ge=0)],
+    slots_used: Annotated[int, Field(description="Number of slots currently used", ge=0)],
+) -> str:
+    """Update spell slot information for a specific spell level.
+
+    This tool is used for both initial setup of spell slots and ongoing management during gameplay:
+    - **Initial Setup**: Set max_slots to the character's maximum for each spell level, slots_used to 0
+    - **Casting Spells**: Increment slots_used when a spell is cast
+    - **Recovery (Short/Long Rest)**: Set slots_used to 0 or reduce it based on recovery rules
+
+    Example uses:
+    - Setup: spell_level=1, max_slots=4, slots_used=0 (character has 4 level 1 slots, all available)
+    - After casting: spell_level=1, max_slots=4, slots_used=2 (2 slots used, 2 remaining)
+    - After rest: spell_level=1, max_slots=4, slots_used=0 (all slots recovered)
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Validate slots_used doesn't exceed max_slots
+    if slots_used > max_slots:
+        return f"❌ Error: slots_used ({slots_used}) cannot exceed max_slots ({max_slots})"
+
+    # Update spell slot dictionaries
+    character.spell_slots[spell_level] = max_slots
+    character.spell_slots_used[spell_level] = slots_used
+
+    storage.update_character(
+        str(character.id),
+        spell_slots=character.spell_slots,
+        spell_slots_used=character.spell_slots_used
+    )
+
+    remaining = max_slots - slots_used
+    return f"Updated {character.name}'s level {spell_level} spell slots: {max_slots} total ({slots_used} used, {remaining} remaining)"
 
 
 @tool_with_logging(mcp, tags=["mode:any"])
