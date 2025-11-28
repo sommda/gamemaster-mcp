@@ -106,3 +106,43 @@ class TestCharacterManagement:
     def test_remove_nonexistent_character(self, storage_with_campaign):
         """Test removing a character that doesn't exist."""
         storage_with_campaign.remove_character("Nonexistent")
+
+    def test_update_character_skills(self, storage_with_campaign, sample_character):
+        """Test updating character skills through update_character."""
+        storage_with_campaign.add_character(sample_character)
+
+        # Modify skills directly
+        character = storage_with_campaign.get_character(sample_character.name)
+        character.skills["acrobatics"].proficiency = "proficient"
+
+        # Update using storage method with skills parameter
+        storage_with_campaign.update_character(
+            sample_character.name,
+            skills=character.skills
+        )
+
+        # Verify skills were updated
+        updated = storage_with_campaign.get_character(sample_character.name)
+        assert updated.skills["acrobatics"].proficiency == "proficient"
+
+    def test_update_character_saving_throws(self, storage_with_campaign, sample_character):
+        """Test updating character saving throws through update_character."""
+        from gamemaster_mcp.models import SavingThrowProficiency
+
+        storage_with_campaign.add_character(sample_character)
+
+        # Modify saving throws directly
+        character = storage_with_campaign.get_character(sample_character.name)
+        character.saving_throws["dexterity"].proficiency = SavingThrowProficiency.PROFICIENT
+        character.saving_throws["dexterity"].modifier = 5
+
+        # Update using storage method with saving_throws parameter
+        storage_with_campaign.update_character(
+            sample_character.name,
+            saving_throws=character.saving_throws
+        )
+
+        # Verify saving throws were updated
+        updated = storage_with_campaign.get_character(sample_character.name)
+        assert updated.saving_throws["dexterity"].proficiency == SavingThrowProficiency.PROFICIENT
+        assert updated.saving_throws["dexterity"].modifier == 5

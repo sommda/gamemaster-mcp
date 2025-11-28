@@ -14,7 +14,6 @@ from typing import Annotated, Any, Literal
 from dotenv import load_dotenv
 from fastmcp import Context, FastMCP
 from fastmcp.prompts.prompt import Message
-from mcp.types import TextContent
 from pydantic import Field
 
 from .models import (
@@ -40,9 +39,7 @@ from .models import (
     TranscriptCombat,
     TranscriptInteraction,
 )
-
 from .prompts import core_prompt, setup_prompt
-
 from .storage import DnDStorage
 from .tool_with_logging import tool_with_logging
 
@@ -289,7 +286,7 @@ def create_character(
     return f"Created character '{character.name}' (Level {character.character_class.level} {character.race.name} {character.character_class.name})"
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
 def get_character(name_or_id: Annotated[str, Field(description="Character name or ID")]) -> str:
     """Get detailed character information."""
     character = storage.get_character(name_or_id)
@@ -317,9 +314,45 @@ Level {character.character_class.level} {character.race.name} {character.charact
 • AC: {character.armor_class}
 • HP: {character.hit_points_current}/{character.hit_points_max}
 • Temp HP: {character.temporary_hit_points}
+• Proficiency Bonus: +{character.proficiency_bonus}
 
-**Inventory:** {len(character.inventory)} items
+**Saving Throws:**
 """
+
+    # Add saving throws
+    for ability in ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]:
+        save = character.saving_throws.get(ability)
+        if save:
+            prof_marker = "✓" if save.proficiency.value == "proficient" else " "
+            char_info += f"• [{prof_marker}] {ability.upper()[:3]}: {save.modifier:+d}\n"
+
+    char_info += "\n**Skills:**\n"
+
+    # Group and display skills
+    proficient_skills = []
+    expertise_skills = []
+    other_skills = []
+
+    for skill_name, skill in character.skills.items():
+        skill_display = f"{skill_name.replace('_', ' ').title()}: {skill.modifier:+d}"
+        if skill.proficiency.value == "expertise":
+            expertise_skills.append(skill_display)
+        elif skill.proficiency.value == "proficient":
+            proficient_skills.append(skill_display)
+        else:
+            other_skills.append(skill_display)
+
+    if expertise_skills:
+        for skill_display in sorted(expertise_skills):
+            char_info += f"• [E] {skill_display}\n"
+    if proficient_skills:
+        for skill_display in sorted(proficient_skills):
+            char_info += f"• [✓] {skill_display}\n"
+    if other_skills:
+        for skill_display in sorted(other_skills):
+            char_info += f"• [ ] {skill_display}\n"
+
+    char_info += f"\n**Inventory:** {len(character.inventory)} items\n"
 
     # Add detailed inventory list
     if character.inventory:
@@ -342,10 +375,270 @@ Level {character.character_class.level} {character.race.name} {character.charact
             prepared_marker = "✓" if spell.prepared else " "
             char_info += f"• [{prepared_marker}] {spell.name} (Level {spell.level})\n"
 
+    # Add special abilities section
+    if character.special_abilities:
+        char_info += f"\n**Special Abilities:** {len(character.special_abilities)} abilities\n"
+        for ability in character.special_abilities:
+            uses_info = ""
+            if ability.uses:
+                uses_info = f" ({ability.uses}"
+                if ability.uses_remaining is not None:
+                    uses_info += f", {ability.uses_remaining} remaining"
+                uses_info += ")"
+            char_info += f"• **{ability.name}**{uses_info}\n"
+            char_info += f"  {ability.description}\n"
+
     return char_info
 
 
-@tool_with_logging(mcp)
+@tool_with_logging(mcp, tags=["mode:any"])
+def update_skills(
+    character_name_or_id: Annotated[str, Field(description="Name or ID of the character to update skills for.")],
+    add_proficiency: Annotated[
+        list[str] | None,
+        Field(
+            description="List of skill names to make the character proficient in. Skill names are case-insensitive. Valid skills: acrobatics, animal_handling, arcana, athletics, deception, history, insight, intimidation, investigation, medicine, nature, perception, performance, persuasion, religion, sleight_of_hand, stealth, survival."
+        )
+    ] = None,
+    add_expertise: Annotated[
+        list[str] | None,
+        Field(
+            description="List of skill names to give the character expertise in (double proficiency bonus). Skill names are case-insensitive. Valid skills: acrobatics, animal_handling, arcana, athletics, deception, history, insight, intimidation, investigation, medicine, nature, perception, performance, persuasion, religion, sleight_of_hand, stealth, survival."
+        )
+    ] = None,
+    remove: Annotated[
+        list[str] | None,
+        Field(
+            description="List of skill names to remove all proficiency from. Skill names are case-insensitive. Valid skills: acrobatics, animal_handling, arcana, athletics, deception, history, insight, intimidation, investigation, medicine, nature, perception, performance, persuasion, religion, sleight_of_hand, stealth, survival."
+        )
+    ] = None,
+) -> str:
+    """Update a character's skill proficiencies.
+
+    This tool allows you to add proficiency, add expertise, or remove proficiency from skills.
+    If a skill appears in multiple lists, the highest proficiency level wins:
+    - Expertise (double proficiency) > Proficiency > Remove
+
+    The tool will automatically calculate the correct modifier based on:
+    - The skill's base ability (e.g., Stealth uses Dexterity)
+    - The character's ability score modifier
+    - The proficiency level (none, proficient, or expertise)
+
+    Example usage:
+    - Make a rogue proficient in Stealth and Sleight of Hand:
+      add_proficiency=["stealth", "sleight_of_hand"]
+
+    - Give a rogue expertise in Stealth:
+      add_expertise=["stealth"]
+
+    - Remove proficiency from Perception:
+      remove=["perception"]
+    """
+    from gamemaster_mcp.models import STANDARD_SKILLS, SkillProficiency
+
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found."
+
+    # Normalize and validate skill names
+    def normalize_skill_name(name: str) -> str:
+        """Convert skill name to lowercase with underscores."""
+        return name.lower().replace(" ", "_").replace("-", "_")
+
+    # Collect all skill names and validate
+    all_skill_names = []
+    if add_proficiency:
+        all_skill_names.extend(add_proficiency)
+    if add_expertise:
+        all_skill_names.extend(add_expertise)
+    if remove:
+        all_skill_names.extend(remove)
+
+    # Validate skill names
+    invalid_skills = []
+    normalized_map = {}
+    for skill_name in all_skill_names:
+        normalized = normalize_skill_name(skill_name)
+        if normalized not in STANDARD_SKILLS:
+            invalid_skills.append(skill_name)
+        else:
+            normalized_map[skill_name] = normalized
+
+    if invalid_skills:
+        valid_skills_list = ", ".join(sorted(STANDARD_SKILLS.keys()))
+        return f"❌ Invalid skill name(s): {', '.join(invalid_skills)}\n\nValid skills are: {valid_skills_list}"
+
+    # Build skill changes with precedence: expertise > proficiency > remove
+    skill_changes = {}
+
+    # Process remove first (lowest priority)
+    if remove:
+        for skill_name in remove:
+            normalized = normalized_map[skill_name]
+            skill_changes[normalized] = ("remove", SkillProficiency.NONE)
+
+    # Process proficiency (medium priority)
+    if add_proficiency:
+        for skill_name in add_proficiency:
+            normalized = normalized_map[skill_name]
+            skill_changes[normalized] = ("proficient", SkillProficiency.PROFICIENT)
+
+    # Process expertise (highest priority)
+    if add_expertise:
+        for skill_name in add_expertise:
+            normalized = normalized_map[skill_name]
+            skill_changes[normalized] = ("expertise", SkillProficiency.EXPERTISE)
+
+    # Apply changes and calculate modifiers
+    changes_made = []
+    for skill_name, (change_type, proficiency) in skill_changes.items():
+        skill = character.skills[skill_name]
+        old_proficiency = skill.proficiency.value
+        skill.proficiency = proficiency
+
+        # Calculate new modifier
+        ability_name = STANDARD_SKILLS[skill_name]
+        ability_mod = character.abilities[ability_name].mod
+
+        if proficiency == SkillProficiency.EXPERTISE:
+            skill.modifier = ability_mod + (character.proficiency_bonus * 2)
+        elif proficiency == SkillProficiency.PROFICIENT:
+            skill.modifier = ability_mod + character.proficiency_bonus
+        else:  # NONE
+            skill.modifier = ability_mod
+
+        # Track changes for output
+        skill_display_name = skill_name.replace("_", " ").title()
+        if change_type == "expertise":
+            changes_made.append(f"  • {skill_display_name}: {old_proficiency} → expertise (modifier: {skill.modifier:+d})")
+        elif change_type == "proficient":
+            changes_made.append(f"  • {skill_display_name}: {old_proficiency} → proficient (modifier: {skill.modifier:+d})")
+        else:  # remove
+            changes_made.append(f"  • {skill_display_name}: {old_proficiency} → none (modifier: {skill.modifier:+d})")
+
+    # Save changes
+    storage.update_character(character_name_or_id, skills=character.skills)
+
+    if changes_made:
+        return f"✅ Updated skills for '{character.name}':\n" + "\n".join(changes_made)
+    else:
+        return f"ℹ️ No skill changes made for '{character.name}'."
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def update_saving_throw_proficiencies(
+    character_name_or_id: Annotated[str, Field(description="Name or ID of the character to update saving throw proficiencies for.")],
+    add: Annotated[
+        list[str] | None,
+        Field(
+            description="List of ability names to make the character proficient in for saving throws. Ability names are case-insensitive. Valid abilities: strength, dexterity, constitution, intelligence, wisdom, charisma."
+        )
+    ] = None,
+    remove: Annotated[
+        list[str] | None,
+        Field(
+            description="List of ability names to remove saving throw proficiency from. Ability names are case-insensitive. Valid abilities: strength, dexterity, constitution, intelligence, wisdom, charisma."
+        )
+    ] = None,
+) -> str:
+    """Update a character's saving throw proficiencies.
+
+    This tool allows you to add or remove proficiency from saving throws.
+    If an ability appears in both lists, add takes precedence over remove.
+
+    The tool will automatically calculate the correct modifier based on:
+    - The character's ability score modifier
+    - Whether the character is proficient in that save
+
+    Example usage:
+    - Make a fighter proficient in Strength and Constitution saves:
+      add=["strength", "constitution"]
+
+    - Make a wizard proficient in Intelligence and Wisdom saves:
+      add=["intelligence", "wisdom"]
+
+    - Remove proficiency from Dexterity saves:
+      remove=["dexterity"]
+    """
+    from gamemaster_mcp.models import STANDARD_SAVING_THROWS, SavingThrowProficiency
+
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found."
+
+    # Normalize and validate ability names
+    def normalize_ability_name(name: str) -> str:
+        """Convert ability name to lowercase."""
+        return name.lower().strip()
+
+    # Collect all ability names and validate
+    all_ability_names = []
+    if add:
+        all_ability_names.extend(add)
+    if remove:
+        all_ability_names.extend(remove)
+
+    # Validate ability names
+    invalid_abilities = []
+    normalized_map = {}
+    for ability_name in all_ability_names:
+        normalized = normalize_ability_name(ability_name)
+        if normalized not in STANDARD_SAVING_THROWS:
+            invalid_abilities.append(ability_name)
+        else:
+            normalized_map[ability_name] = normalized
+
+    if invalid_abilities:
+        valid_abilities_list = ", ".join(STANDARD_SAVING_THROWS)
+        return f"❌ Invalid ability name(s): {', '.join(invalid_abilities)}\n\nValid abilities are: {valid_abilities_list}"
+
+    # Build saving throw changes with precedence: add > remove
+    save_changes = {}
+
+    # Process remove first (lower priority)
+    if remove:
+        for ability_name in remove:
+            normalized = normalized_map[ability_name]
+            save_changes[normalized] = ("remove", SavingThrowProficiency.NONE)
+
+    # Process add (higher priority)
+    if add:
+        for ability_name in add:
+            normalized = normalized_map[ability_name]
+            save_changes[normalized] = ("add", SavingThrowProficiency.PROFICIENT)
+
+    # Apply changes and calculate modifiers
+    changes_made = []
+    for ability_name, (change_type, proficiency) in save_changes.items():
+        save = character.saving_throws[ability_name]
+        old_proficiency = save.proficiency.value
+        save.proficiency = proficiency
+
+        # Calculate new modifier
+        ability_mod = character.abilities[ability_name].mod
+
+        if proficiency == SavingThrowProficiency.PROFICIENT:
+            save.modifier = ability_mod + character.proficiency_bonus
+        else:  # NONE
+            save.modifier = ability_mod
+
+        # Track changes for output
+        ability_display_name = ability_name.upper()[:3]
+        if change_type == "add":
+            changes_made.append(f"  • {ability_display_name}: {old_proficiency} → proficient (modifier: {save.modifier:+d})")
+        else:  # remove
+            changes_made.append(f"  • {ability_display_name}: {old_proficiency} → none (modifier: {save.modifier:+d})")
+
+    # Save changes
+    storage.update_character(character_name_or_id, saving_throws=character.saving_throws)
+
+    if changes_made:
+        return f"✅ Updated saving throws for '{character.name}':\n" + "\n".join(changes_made)
+    else:
+        return f"ℹ️ No saving throw changes made for '{character.name}'."
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
 def update_character(
     name_or_id: Annotated[str, Field(description="The name or ID of the character to update.")],
     name: Annotated[
@@ -437,6 +730,98 @@ def update_character(
     storage.update_character(str(character.id), **updates)
 
     return f"Updated {character.name}'s properties: {'; '.join(updated_fields)}."
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def damage_character(
+    name_or_id: Annotated[str, Field(description="The name or ID of the character taking damage.")],
+    damage: Annotated[int, Field(description="Amount of damage taken", ge=0)],
+) -> str:
+    """Apply damage to a character, reducing their current hit points.
+
+    This is a convenience tool that automatically calculates the new HP value.
+    Use this instead of update_character when a character takes damage.
+
+    The character's HP will be reduced by the damage amount, but cannot go below 0.
+    Temporary hit points are automatically applied first if present.
+    """
+    character = storage.get_character(name_or_id)
+    if not character:
+        return f"❌ Character '{name_or_id}' not found."
+
+    if damage == 0:
+        return f"{character.name} takes no damage."
+
+    # Apply temporary HP first
+    damage_remaining = damage
+    temp_hp_lost = 0
+    if character.temporary_hit_points > 0:
+        temp_hp_lost = min(character.temporary_hit_points, damage_remaining)
+        damage_remaining -= temp_hp_lost
+        new_temp_hp = character.temporary_hit_points - temp_hp_lost
+    else:
+        new_temp_hp = 0
+
+    # Apply remaining damage to actual HP
+    old_hp = character.hit_points_current
+    new_hp = max(0, old_hp - damage_remaining)
+    actual_damage = old_hp - new_hp
+
+    # Update character
+    storage.update_character(
+        str(character.id),
+        hit_points_current=new_hp,
+        temporary_hit_points=new_temp_hp
+    )
+
+    # Build response message
+    msg_parts = []
+    if temp_hp_lost > 0:
+        msg_parts.append(f"{temp_hp_lost} absorbed by temporary HP")
+    if actual_damage > 0:
+        msg_parts.append(f"{actual_damage} HP damage")
+
+    damage_desc = " + ".join(msg_parts) if msg_parts else "no damage"
+
+    if new_hp == 0:
+        return f"💀 {character.name} takes {damage} damage ({damage_desc}) and drops to 0 HP!"
+    else:
+        return f"⚔️ {character.name} takes {damage} damage ({damage_desc}). HP: {new_hp}/{character.hit_points_max}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def heal_character(
+    name_or_id: Annotated[str, Field(description="The name or ID of the character being healed.")],
+    healing: Annotated[int, Field(description="Amount of hit points restored", ge=0)],
+) -> str:
+    """Restore hit points to a character.
+
+    This is a convenience tool that automatically calculates the new HP value.
+    Use this instead of update_character when a character is healed.
+
+    The character's HP will be increased by the healing amount, but cannot exceed their maximum HP.
+    """
+    character = storage.get_character(name_or_id)
+    if not character:
+        return f"❌ Character '{name_or_id}' not found."
+
+    if healing == 0:
+        return f"{character.name} receives no healing."
+
+    old_hp = character.hit_points_current
+    new_hp = min(character.hit_points_max, old_hp + healing)
+    actual_healing = new_hp - old_hp
+
+    if actual_healing == 0:
+        return f"{character.name} is already at full health ({character.hit_points_max} HP)."
+
+    # Update character
+    storage.update_character(str(character.id), hit_points_current=new_hp)
+
+    if new_hp == character.hit_points_max:
+        return f"✨ {character.name} is healed for {actual_healing} HP and restored to full health! HP: {new_hp}/{character.hit_points_max}"
+    else:
+        return f"✨ {character.name} is healed for {actual_healing} HP. HP: {new_hp}/{character.hit_points_max}"
 
 
 @tool_with_logging(mcp, tags=["mode:setup"])
@@ -768,6 +1153,278 @@ def update_spell_slot(
 
 
 @tool_with_logging(mcp, tags=["mode:any"])
+def use_spell_slot(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character casting the spell.")
+    ],
+    spell_level: Annotated[int, Field(description="Spell level (1-9)", ge=1, le=9)],
+) -> str:
+    """Mark a spell slot as used when a spell is cast.
+
+    This is a convenience tool that automatically increments the slots_used counter.
+    Use this instead of update_spell_slot when a character casts a spell.
+
+    The tool validates that an available slot exists before marking it as used.
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Check if character has spell slots at this level
+    if spell_level not in character.spell_slots or character.spell_slots[spell_level] == 0:
+        return f"❌ {character.name} has no level {spell_level} spell slots!"
+
+    # Get current slot usage
+    max_slots = character.spell_slots[spell_level]
+    slots_used = character.spell_slots_used.get(spell_level, 0)
+
+    # Check if slots are available
+    if slots_used >= max_slots:
+        return f"❌ {character.name} has no remaining level {spell_level} spell slots! ({slots_used}/{max_slots} used)"
+
+    # Increment slots used
+    new_slots_used = slots_used + 1
+    character.spell_slots_used[spell_level] = new_slots_used
+
+    storage.update_character(
+        str(character.id),
+        spell_slots_used=character.spell_slots_used
+    )
+
+    remaining = max_slots - new_slots_used
+    return f"🔮 {character.name} uses a level {spell_level} spell slot. Slots remaining: {remaining}/{max_slots}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def restore_spell_slots(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character recovering spell slots.")
+    ],
+    levels: Annotated[
+        list[int] | None,
+        Field(description="Spell levels to restore (1-9). If not specified, restores all levels (long rest).")
+    ] = None,
+) -> str:
+    """Restore spell slots after a rest.
+
+    This is a convenience tool for recovering spell slots.
+    - Long rest: Don't specify levels (restores all slots)
+    - Short rest/partial recovery: Specify which levels to restore
+
+    Examples:
+    - After long rest: restore_spell_slots("Wizard")
+    - After short rest (Warlock): restore_spell_slots("Warlock", levels=[1, 2])
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    if not character.spell_slots:
+        return f"❌ {character.name} has no spell slots to restore!"
+
+    # Determine which levels to restore
+    if levels is None:
+        # Long rest - restore all levels
+        levels_to_restore = list(character.spell_slots.keys())
+        rest_type = "long rest"
+    else:
+        # Validate levels
+        for level in levels:
+            if level < 1 or level > 9:
+                return f"❌ Invalid spell level: {level}. Must be between 1 and 9."
+        levels_to_restore = levels
+        rest_type = "rest"
+
+    # Restore slots
+    restored_levels = []
+    for level in levels_to_restore:
+        if level in character.spell_slots and character.spell_slots[level] > 0:
+            character.spell_slots_used[level] = 0
+            restored_levels.append(level)
+
+    if not restored_levels:
+        return f"{character.name} has no spell slots at the specified levels."
+
+    storage.update_character(
+        str(character.id),
+        spell_slots_used=character.spell_slots_used
+    )
+
+    if len(restored_levels) == len(character.spell_slots):
+        return f"✨ {character.name} takes a {rest_type} and recovers all spell slots!"
+    else:
+        levels_str = ", ".join(str(l) for l in sorted(restored_levels))
+        return f"✨ {character.name} takes a {rest_type} and recovers spell slots for levels: {levels_str}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_special_ability(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to add the special ability to.")
+    ],
+    ability_name: Annotated[str, Field(description="Name of the special ability")],
+    description: Annotated[
+        str, Field(description="Description of the ability, including its effects")
+    ],
+    uses: Annotated[
+        str | None,
+        Field(description="Description of usage limitations (e.g., '3/day', 'Recharges on short rest', 'Unlimited')")
+    ] = None,
+    uses_remaining: Annotated[
+        int | None,
+        Field(description="Number of uses remaining if the ability has limited uses", ge=0)
+    ] = None,
+) -> str:
+    """Add a special ability to a character.
+
+    Special abilities can include racial features, class features, feats, magical items effects,
+    or any other unique capabilities the character possesses.
+
+    If the ability has limited uses per day/rest, specify both 'uses' (describing the limitation)
+    and 'uses_remaining' (the current count).
+    """
+    from gamemaster_mcp.models import SpecialAbility
+
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Check if ability with same name already exists (case-insensitive)
+    for existing_ability in character.special_abilities:
+        if existing_ability.name.lower() == ability_name.lower():
+            return f"⚠️ {character.name} already has a special ability named '{ability_name}'. Use update_special_ability to modify it."
+
+    # Create new special ability
+    new_ability = SpecialAbility(
+        name=ability_name,
+        description=description,
+        uses=uses,
+        uses_remaining=uses_remaining,
+    )
+
+    character.special_abilities.append(new_ability)
+    storage.update_character(str(character.id), special_abilities=character.special_abilities)
+
+    uses_info = ""
+    if uses:
+        uses_info = f" ({uses}"
+        if uses_remaining is not None:
+            uses_info += f", {uses_remaining} remaining"
+        uses_info += ")"
+
+    return f"✅ Added special ability '{ability_name}' to {character.name}{uses_info}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def remove_special_ability(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character to remove the special ability from.")
+    ],
+    ability_name: Annotated[str, Field(description="Name of the special ability to remove")],
+) -> str:
+    """Remove a special ability from a character.
+
+    The ability is identified by name (case-insensitive match).
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Find and remove the ability (case-insensitive)
+    ability_to_remove = None
+    for ability in character.special_abilities:
+        if ability.name.lower() == ability_name.lower():
+            ability_to_remove = ability
+            break
+
+    if not ability_to_remove:
+        return f"❌ Special ability '{ability_name}' not found for {character.name}"
+
+    character.special_abilities.remove(ability_to_remove)
+    storage.update_character(str(character.id), special_abilities=character.special_abilities)
+
+    return f"✅ Removed special ability '{ability_to_remove.name}' from {character.name}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def update_special_ability(
+    character_name_or_id: Annotated[
+        str, Field(description="Name or ID of the character whose special ability to update.")
+    ],
+    ability_name: Annotated[str, Field(description="Name of the special ability to update")],
+    new_name: Annotated[
+        str | None,
+        Field(description="New name for the ability (optional)")
+    ] = None,
+    new_description: Annotated[
+        str | None,
+        Field(description="New description for the ability (optional)")
+    ] = None,
+    new_uses: Annotated[
+        str | None,
+        Field(description="New usage limitations description (optional)")
+    ] = None,
+    new_uses_remaining: Annotated[
+        int | None,
+        Field(description="New number of uses remaining (optional)", ge=0)
+    ] = None,
+) -> str:
+    """Update an existing special ability for a character.
+
+    The ability is identified by its current name (case-insensitive match).
+    Any field that is provided will be updated; fields not provided will remain unchanged.
+
+    Common use cases:
+    - Decrease uses_remaining when an ability is used
+    - Restore uses_remaining after a rest
+    - Update the description if the ability evolves
+    - Rename an ability
+    """
+    character = storage.get_character(character_name_or_id)
+    if not character:
+        return f"❌ Character '{character_name_or_id}' not found!"
+
+    # Find the ability (case-insensitive)
+    ability_to_update = None
+    for ability in character.special_abilities:
+        if ability.name.lower() == ability_name.lower():
+            ability_to_update = ability
+            break
+
+    if not ability_to_update:
+        return f"❌ Special ability '{ability_name}' not found for {character.name}"
+
+    # Track changes for output
+    changes = []
+
+    if new_name is not None and new_name != ability_to_update.name:
+        old_name = ability_to_update.name
+        ability_to_update.name = new_name
+        changes.append(f"name: '{old_name}' → '{new_name}'")
+
+    if new_description is not None and new_description != ability_to_update.description:
+        ability_to_update.description = new_description
+        changes.append("description updated")
+
+    if new_uses is not None and new_uses != ability_to_update.uses:
+        old_uses = ability_to_update.uses or "None"
+        ability_to_update.uses = new_uses
+        changes.append(f"uses: {old_uses} → {new_uses}")
+
+    if new_uses_remaining is not None and new_uses_remaining != ability_to_update.uses_remaining:
+        old_remaining = ability_to_update.uses_remaining
+        ability_to_update.uses_remaining = new_uses_remaining
+        changes.append(f"uses remaining: {old_remaining} → {new_uses_remaining}")
+
+    if not changes:
+        return f"ℹ️ No changes made to '{ability_to_update.name}' for {character.name}"
+
+    storage.update_character(str(character.id), special_abilities=character.special_abilities)
+
+    return f"✅ Updated special ability '{ability_name}' for {character.name}:\n  • " + "\n  • ".join(changes)
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
 def list_characters() -> str:
     """List all characters in the current campaign."""
     characters = storage.list_characters()
@@ -1019,7 +1676,7 @@ def list_monsters() -> str:
 
 
 # Location Management Tools
-@tool_with_logging(mcp, tags=["mode:setup"])
+@tool_with_logging(mcp, tags=["mode:any"])
 def create_location(
     name: Annotated[str, Field(description="Location name")],
     location_type: Annotated[

@@ -18,16 +18,14 @@ from .models import (
     GameState,
     Location,
     Quest,
-    SessionNote,
-    Transcript,
-    TranscriptEntry,
-    # New transcript tree models
-    TranscriptTree,
-    TranscriptInteraction,
-    TranscriptCombat,
-    TranscriptAdventure,
     ResponseText,
     ResponseTools,
+    SessionNote,
+    TranscriptAdventure,
+    TranscriptCombat,
+    TranscriptInteraction,
+    # New transcript tree models
+    TranscriptTree,
 )
 
 logger = logging.getLogger("gamemaster-mcp")
@@ -172,7 +170,7 @@ class DnDStorage:
 
             # Detect format: old format has 'entries', new format has 'children'
             if "entries" in transcript_data:
-                logger.info(f"🔄 Migrating old transcript format to new tree format...")
+                logger.info("🔄 Migrating old transcript format to new tree format...")
 
                 # Create backup
                 backup_file = transcript_file.with_suffix(".json.old")
@@ -199,7 +197,7 @@ class DnDStorage:
 
                 # Save in new format
                 self._save_transcript(transcript)
-                logger.info(f"✅ Migration complete. Transcript now uses tree format.")
+                logger.info("✅ Migration complete. Transcript now uses tree format.")
                 return transcript
 
             else:
@@ -346,7 +344,7 @@ class DnDStorage:
                 transcript.children.append(interaction)
 
         self._save_transcript(transcript)
-        logger.info(f"✅ Added interaction to transcript")
+        logger.info("✅ Added interaction to transcript")
         return interaction
 
     def start_transcript_combat(
@@ -833,6 +831,11 @@ class DnDStorage:
         spell_slots: dict | None = None,
         spell_slots_used: dict | None = None,
         spells_known: list | None = None,
+        # Skills and saving throws for internal use by proficiency management tools
+        skills: dict | None = None,
+        saving_throws: dict | None = None,
+        # Special abilities for internal use by ability management tools
+        special_abilities: list | None = None,
     ) -> None:
         """Update a character's data."""
         if not self._current_campaign:
@@ -902,6 +905,16 @@ class DnDStorage:
             character.spell_slots_used = spell_slots_used
         if spells_known is not None:
             character.spells_known = spells_known
+
+        # Update skills and saving throws (used by proficiency management tools)
+        if skills is not None:
+            character.skills = skills
+        if saving_throws is not None:
+            character.saving_throws = saving_throws
+
+        # Update special abilities (used by ability management tools)
+        if special_abilities is not None:
+            character.special_abilities = special_abilities
 
         character.updated_at = datetime.now()
 

@@ -10,6 +10,7 @@ from gamemaster_mcp.main import (
     add_event,
     add_item_to_character,
     add_session_note,
+    add_special_ability,
     add_spell_to_character,
     bulk_update_characters,
     calculate_experience,
@@ -55,12 +56,16 @@ from gamemaster_mcp.main import (
     record_interaction,
     record_interaction_with_tools,
     remove_item_from_character,
+    remove_special_ability,
     roll_dice,
     set_mode,
     start_combat,
     update_character,
     update_game_state,
     update_quest,
+    update_saving_throw_proficiencies,
+    update_skills,
+    update_special_ability,
     update_spell_slot,
 )
 
@@ -405,6 +410,172 @@ class TestAPI:
         result_text = result.content[0].text
         assert "❌" in result_text
         assert "greater than maximum" in result_text.lower()
+
+    async def test_update_skills_add(self, storage_with_campaign):
+        """Test adding skill proficiencies."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Rogue1", "character_class": "Rogue", "class_level": 3, "race": "Halfling"}
+        )
+
+        # Add proficiency in acrobatics and stealth
+        result = await update_skills.run(
+            {
+                "character_name_or_id": "Rogue1",
+                "add_proficiency": ["acrobatics", "stealth"],
+            }
+        )
+        assert len(result.content) == 1
+        assert "Updated skills for 'Rogue1'" in result.content[0].text
+        assert "Acrobatics" in result.content[0].text
+        assert "Stealth" in result.content[0].text
+        assert "proficient" in result.content[0].text.lower()
+
+        # Verify skills were updated
+        character = storage_with_campaign.get_character("Rogue1")
+        assert character.skills["acrobatics"].proficiency == "proficient"
+        assert character.skills["stealth"].proficiency == "proficient"
+
+    async def test_update_skills_expertise(self, storage_with_campaign):
+        """Test adding expertise to skills."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Rogue2", "character_class": "Rogue", "class_level": 5, "race": "Human"}
+        )
+
+        # First add proficiency
+        await update_skills.run(
+            {
+                "character_name_or_id": "Rogue2",
+                "add_proficiency": ["sleight_of_hand"],
+            }
+        )
+
+        # Then add expertise
+        result = await update_skills.run(
+            {
+                "character_name_or_id": "Rogue2",
+                "add_expertise": ["sleight_of_hand"],
+            }
+        )
+        assert "Updated skills for 'Rogue2'" in result.content[0].text
+        assert "expertise" in result.content[0].text.lower()
+
+        # Verify expertise was added
+        character = storage_with_campaign.get_character("Rogue2")
+        assert character.skills["sleight_of_hand"].proficiency == "expertise"
+
+    async def test_update_skills_remove(self, storage_with_campaign):
+        """Test removing skill proficiencies."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Rogue3", "character_class": "Rogue", "class_level": 3, "race": "Elf"}
+        )
+
+        # Add proficiency first
+        await update_skills.run(
+            {
+                "character_name_or_id": "Rogue3",
+                "add_proficiency": ["perception", "investigation"],
+            }
+        )
+
+        # Remove proficiency from perception
+        result = await update_skills.run(
+            {
+                "character_name_or_id": "Rogue3",
+                "remove": ["perception"],
+            }
+        )
+        assert "Updated skills for 'Rogue3'" in result.content[0].text
+        assert "none" in result.content[0].text.lower()
+
+        # Verify proficiency was removed
+        character = storage_with_campaign.get_character("Rogue3")
+        assert character.skills["perception"].proficiency == "none"
+        # Investigation should still be proficient
+        assert character.skills["investigation"].proficiency == "proficient"
+
+    async def test_update_saving_throw_proficiencies_add(self, storage_with_campaign):
+        """Test adding saving throw proficiencies."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Fighter1", "character_class": "Fighter", "class_level": 3, "race": "Dwarf"}
+        )
+
+        # Add proficiency in Strength and Constitution saves
+        result = await update_saving_throw_proficiencies.run(
+            {
+                "character_name_or_id": "Fighter1",
+                "add": ["strength", "constitution"],
+            }
+        )
+        assert len(result.content) == 1
+        assert "Updated saving throws for 'Fighter1'" in result.content[0].text
+        assert "STR" in result.content[0].text  # Strength abbreviation
+        assert "CON" in result.content[0].text  # Constitution abbreviation
+        assert "proficient" in result.content[0].text.lower()
+
+        # Verify saving throws were updated
+        from gamemaster_mcp.models import SavingThrowProficiency
+        character = storage_with_campaign.get_character("Fighter1")
+        assert character.saving_throws["strength"].proficiency == SavingThrowProficiency.PROFICIENT
+        assert character.saving_throws["constitution"].proficiency == SavingThrowProficiency.PROFICIENT
+
+    async def test_update_saving_throw_proficiencies_remove(self, storage_with_campaign):
+        """Test removing saving throw proficiencies."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Wizard2", "character_class": "Wizard", "class_level": 5, "race": "Human"}
+        )
+
+        # Add proficiency first
+        await update_saving_throw_proficiencies.run(
+            {
+                "character_name_or_id": "Wizard2",
+                "add": ["intelligence", "wisdom"],
+            }
+        )
+
+        # Remove proficiency from wisdom
+        result = await update_saving_throw_proficiencies.run(
+            {
+                "character_name_or_id": "Wizard2",
+                "remove": ["wisdom"],
+            }
+        )
+        assert "Updated saving throws for 'Wizard2'" in result.content[0].text
+        assert "none" in result.content[0].text.lower()
+
+        # Verify proficiency was removed
+        from gamemaster_mcp.models import SavingThrowProficiency
+        character = storage_with_campaign.get_character("Wizard2")
+        assert character.saving_throws["wisdom"].proficiency == SavingThrowProficiency.NONE
+        # Intelligence should still be proficient
+        assert character.saving_throws["intelligence"].proficiency == SavingThrowProficiency.PROFICIENT
+
+    async def test_update_saving_throw_proficiencies_invalid_ability(self, storage_with_campaign):
+        """Test error handling for invalid ability names."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "TestChar2", "character_class": "Cleric", "class_level": 3, "race": "Human"}
+        )
+
+        # Try to add proficiency to invalid ability
+        result = await update_saving_throw_proficiencies.run(
+            {
+                "character_name_or_id": "TestChar2",
+                "add": ["invalid_ability"],
+            }
+        )
+        assert "❌ Invalid ability name(s)" in result.content[0].text
+        assert "invalid_ability" in result.content[0].text
 
     async def test_bulk_update_characters(self, storage_with_campaign):
         """Test bulk updating multiple characters."""
@@ -2249,7 +2420,7 @@ class TestAPI:
         await set_mode.run({"modes": ["town", "setup"]})
 
         # Get game state and verify modes are included
-        game_state_str = await get_game_state.run({})
+        await get_game_state.run({})
         # The get_game_state function doesn't currently show modes in its output
         # but they should be persisted in the underlying data structure
 
@@ -2258,3 +2429,270 @@ class TestAPI:
         mode_text = mode_result.content[0].text
         assert "Current modes: [town, setup]" in mode_text
         assert "Primary mode: town" in mode_text
+
+    # Special Abilities Tests
+    async def test_add_special_ability(self, storage_with_campaign):
+        """Test adding a special ability to a character."""
+        override_storage(storage_with_campaign)
+        # Create a character
+        await create_character.run(
+            {"name": "Barbarian1", "character_class": "Barbarian", "class_level": 3, "race": "Half-Orc"}
+        )
+
+        # Add a special ability
+        result = await add_special_ability.run(
+            {
+                "character_name_or_id": "Barbarian1",
+                "ability_name": "Rage",
+                "description": "Enter a rage as a bonus action. While raging, gain +2 damage, advantage on STR checks, and resistance to physical damage.",
+                "uses": "3/day",
+                "uses_remaining": 3,
+            }
+        )
+        assert len(result.content) == 1
+        assert "Added special ability 'Rage' to Barbarian1" in result.content[0].text
+        assert "3/day" in result.content[0].text
+        assert "3 remaining" in result.content[0].text
+
+        # Verify ability was added
+        character = storage_with_campaign.get_character("Barbarian1")
+        assert len(character.special_abilities) == 1
+        assert character.special_abilities[0].name == "Rage"
+        assert character.special_abilities[0].uses == "3/day"
+        assert character.special_abilities[0].uses_remaining == 3
+
+    async def test_add_special_ability_unlimited_uses(self, storage_with_campaign):
+        """Test adding a special ability with unlimited uses."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Rogue4", "character_class": "Rogue", "class_level": 2, "race": "Human"}
+        )
+
+        result = await add_special_ability.run(
+            {
+                "character_name_or_id": "Rogue4",
+                "ability_name": "Sneak Attack",
+                "description": "Deal an extra 1d6 damage when you have advantage.",
+                "uses": "Unlimited",
+            }
+        )
+        assert "Added special ability 'Sneak Attack' to Rogue4" in result.content[0].text
+        assert "Unlimited" in result.content[0].text
+
+        character = storage_with_campaign.get_character("Rogue4")
+        assert character.special_abilities[0].name == "Sneak Attack"
+        assert character.special_abilities[0].uses == "Unlimited"
+        assert character.special_abilities[0].uses_remaining is None
+
+    async def test_add_special_ability_duplicate(self, storage_with_campaign):
+        """Test that duplicate special abilities are rejected."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Paladin1", "character_class": "Paladin", "class_level": 2, "race": "Human"}
+        )
+
+        # Add first ability
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Paladin1",
+                "ability_name": "Divine Smite",
+                "description": "Expend a spell slot to deal radiant damage.",
+            }
+        )
+
+        # Try to add same ability again
+        result = await add_special_ability.run(
+            {
+                "character_name_or_id": "Paladin1",
+                "ability_name": "Divine Smite",
+                "description": "Different description",
+            }
+        )
+        assert "already has a special ability named 'Divine Smite'" in result.content[0].text
+
+    async def test_remove_special_ability(self, storage_with_campaign):
+        """Test removing a special ability."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Monk1", "character_class": "Monk", "class_level": 3, "race": "Human"}
+        )
+
+        # Add an ability
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Monk1",
+                "ability_name": "Flurry of Blows",
+                "description": "Spend 1 ki point to make two unarmed strikes as a bonus action.",
+            }
+        )
+
+        # Remove it
+        result = await remove_special_ability.run(
+            {
+                "character_name_or_id": "Monk1",
+                "ability_name": "Flurry of Blows",
+            }
+        )
+        assert "Removed special ability 'Flurry of Blows' from Monk1" in result.content[0].text
+
+        # Verify it was removed
+        character = storage_with_campaign.get_character("Monk1")
+        assert len(character.special_abilities) == 0
+
+    async def test_remove_special_ability_not_found(self, storage_with_campaign):
+        """Test error when removing non-existent ability."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Druid1", "character_class": "Druid", "class_level": 2, "race": "Elf"}
+        )
+
+        result = await remove_special_ability.run(
+            {
+                "character_name_or_id": "Druid1",
+                "ability_name": "Nonexistent",
+            }
+        )
+        assert "Special ability 'Nonexistent' not found" in result.content[0].text
+
+    async def test_update_special_ability_uses_remaining(self, storage_with_campaign):
+        """Test updating uses_remaining for a special ability."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Warlock1", "character_class": "Warlock", "class_level": 2, "race": "Tiefling"}
+        )
+
+        # Add ability with uses
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Warlock1",
+                "ability_name": "Eldritch Blast",
+                "description": "A beam of crackling energy.",
+                "uses": "At will",
+            }
+        )
+
+        # Add another ability with limited uses
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Warlock1",
+                "ability_name": "Hex",
+                "description": "Curse a target.",
+                "uses": "2/short rest",
+                "uses_remaining": 2,
+            }
+        )
+
+        # Use Hex once (decrease uses_remaining)
+        result = await update_special_ability.run(
+            {
+                "character_name_or_id": "Warlock1",
+                "ability_name": "Hex",
+                "new_uses_remaining": 1,
+            }
+        )
+        assert "Updated special ability 'Hex' for Warlock1" in result.content[0].text
+        assert "uses remaining: 2 → 1" in result.content[0].text
+
+        # Verify
+        character = storage_with_campaign.get_character("Warlock1")
+        hex_ability = [a for a in character.special_abilities if a.name == "Hex"][0]
+        assert hex_ability.uses_remaining == 1
+
+    async def test_update_special_ability_rename(self, storage_with_campaign):
+        """Test renaming a special ability."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Sorcerer1", "character_class": "Sorcerer", "class_level": 5, "race": "Human"}
+        )
+
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Sorcerer1",
+                "ability_name": "Metamagic",
+                "description": "Twist your spells.",
+            }
+        )
+
+        # Rename it
+        result = await update_special_ability.run(
+            {
+                "character_name_or_id": "Sorcerer1",
+                "ability_name": "Metamagic",
+                "new_name": "Quickened Spell",
+            }
+        )
+        assert "Updated special ability 'Metamagic' for Sorcerer1" in result.content[0].text
+        assert "name: 'Metamagic' → 'Quickened Spell'" in result.content[0].text
+
+        character = storage_with_campaign.get_character("Sorcerer1")
+        assert character.special_abilities[0].name == "Quickened Spell"
+
+    async def test_update_special_ability_description(self, storage_with_campaign):
+        """Test updating the description of a special ability."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Bard1", "character_class": "Bard", "class_level": 3, "race": "Halfling"}
+        )
+
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Bard1",
+                "ability_name": "Bardic Inspiration",
+                "description": "Grant a d6 to an ally.",
+                "uses": "3/long rest",
+                "uses_remaining": 3,
+            }
+        )
+
+        # Update description
+        result = await update_special_ability.run(
+            {
+                "character_name_or_id": "Bard1",
+                "ability_name": "Bardic Inspiration",
+                "new_description": "Grant a d8 to an ally. They can add it to a roll.",
+            }
+        )
+        assert "Updated special ability 'Bardic Inspiration' for Bard1" in result.content[0].text
+        assert "description updated" in result.content[0].text
+
+        character = storage_with_campaign.get_character("Bard1")
+        assert "d8" in character.special_abilities[0].description
+
+    async def test_get_character_displays_special_abilities(self, storage_with_campaign):
+        """Test that get_character displays special abilities."""
+        override_storage(storage_with_campaign)
+        await create_character.run(
+            {"name": "Ranger1", "character_class": "Ranger", "class_level": 5, "race": "Elf"}
+        )
+
+        # Add multiple abilities
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Ranger1",
+                "ability_name": "Hunter's Mark",
+                "description": "Mark your quarry for extra damage.",
+                "uses": "Concentration",
+            }
+        )
+        await add_special_ability.run(
+            {
+                "character_name_or_id": "Ranger1",
+                "ability_name": "Primeval Awareness",
+                "description": "Sense the presence of creatures.",
+                "uses": "1/short rest",
+                "uses_remaining": 1,
+            }
+        )
+
+        # Get character info
+        result = await get_character.run({"name_or_id": "Ranger1"})
+        text = result.content[0].text
+
+        # Verify special abilities section exists
+        assert "**Special Abilities:** 2 abilities" in text
+        assert "**Hunter's Mark**" in text
+        assert "Concentration" in text
+        assert "Mark your quarry for extra damage" in text
+        assert "**Primeval Awareness**" in text
+        assert "1/short rest" in text
+        assert "1 remaining" in text

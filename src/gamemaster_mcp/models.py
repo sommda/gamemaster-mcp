@@ -11,16 +11,14 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field
 from shortuuid import random
 
-from .prompts import (
-    core_prompt,
-    setup_prompt,
-    outdoor_prompt,
-    dungeon_prompt,
-    town_prompt,
-    combat_prompt
-)
-
 from .logutils import logger
+from .prompts import (
+    combat_prompt,
+    dungeon_prompt,
+    outdoor_prompt,
+    setup_prompt,
+    town_prompt,
+)
 
 # Available game modes with descriptions
 AVAILABLE_MODES = {
@@ -191,6 +189,63 @@ class AbilityScore(BaseModel):
         return (self.score - 10) // 2
 
 
+class SavingThrowProficiency(str, Enum):
+    """Proficiency level for saving throws."""
+    NONE = "none"
+    PROFICIENT = "proficient"
+
+
+class SkillProficiency(str, Enum):
+    """Proficiency level for skills."""
+    NONE = "none"
+    PROFICIENT = "proficient"
+    EXPERTISE = "expertise"  # Double proficiency bonus
+
+
+class SavingThrow(BaseModel):
+    """Saving throw with proficiency tracking."""
+
+    ability: str = Field(description="Base ability for this save (str, dex, con, int, wis, cha)")
+    proficiency: SavingThrowProficiency = SavingThrowProficiency.NONE
+    modifier: int = Field(default=0, description="Total saving throw modifier (ability mod + proficiency if applicable)")
+
+
+class Skill(BaseModel):
+    """Skill with proficiency tracking."""
+
+    name: str = Field(description="Name of the skill")
+    ability: str = Field(description="Base ability for this skill (str, dex, con, int, wis, cha)")
+    proficiency: SkillProficiency = SkillProficiency.NONE
+    modifier: int = Field(default=0, description="Total skill modifier (ability mod + proficiency if applicable)")
+
+
+# Standard D&D 5e skills with their base abilities
+STANDARD_SKILLS = {
+    "acrobatics": "dexterity",
+    "animal_handling": "wisdom",
+    "arcana": "intelligence",
+    "athletics": "strength",
+    "deception": "charisma",
+    "history": "intelligence",
+    "insight": "wisdom",
+    "intimidation": "charisma",
+    "investigation": "intelligence",
+    "medicine": "wisdom",
+    "nature": "intelligence",
+    "perception": "wisdom",
+    "performance": "charisma",
+    "persuasion": "charisma",
+    "religion": "intelligence",
+    "sleight_of_hand": "dexterity",
+    "stealth": "dexterity",
+    "survival": "wisdom",
+}
+
+
+# Standard D&D 5e saving throws
+STANDARD_SAVING_THROWS = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+
+
 class CharacterClass(BaseModel):
     """Character class information."""
 
@@ -239,6 +294,23 @@ class Spell(BaseModel):
     prepared: bool = False
 
 
+class SpecialAbility(BaseModel):
+    """Special ability or feature for a character."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    name: str = Field(description="Name of the special ability")
+    description: str = Field(description="Description of the ability, including its effects")
+    uses: str | None = Field(
+        default=None,
+        description="Description of usage limitations (e.g., '3/day', 'Recharges on short rest', 'Unlimited')"
+    )
+    uses_remaining: int | None = Field(
+        default=None,
+        ge=0,
+        description="Number of uses remaining if the ability has limited uses"
+    )
+
+
 class Character(BaseModel):
     """Complete character sheet."""
 
@@ -278,8 +350,32 @@ class Character(BaseModel):
 
     # Skills & Proficiencies
     proficiency_bonus: int = 2
-    skill_proficiencies: list[str] = Field(default_factory=list)
-    saving_throw_proficiencies: list[str] = Field(default_factory=list)
+    skills: dict[str, Skill] = Field(
+        default_factory=lambda: {
+            skill_name: Skill(name=skill_name, ability=ability, proficiency=SkillProficiency.NONE, modifier=0)
+            for skill_name, ability in STANDARD_SKILLS.items()
+        },
+        description="Character's skills with proficiency tracking"
+    )
+    saving_throws: dict[str, SavingThrow] = Field(
+        default_factory=lambda: {
+            ability: SavingThrow(ability=ability, proficiency=SavingThrowProficiency.NONE, modifier=0)
+            for ability in STANDARD_SAVING_THROWS
+        },
+        description="Character's saving throws with proficiency tracking"
+    )
+
+    # Deprecated fields for backward compatibility (will be migrated to new format)
+    skill_proficiencies: list[str] | None = Field(
+        default=None,
+        exclude=True,
+        description="DEPRECATED: Use 'skills' dict instead. Old format for skill proficiencies."
+    )
+    saving_throw_proficiencies: list[str] | None = Field(
+        default=None,
+        exclude=True,
+        description="DEPRECATED: Use 'saving_throws' dict instead. Old format for saving throw proficiencies."
+    )
 
     # Equipment
     inventory: list[Item] = Field(default_factory=list)
@@ -296,6 +392,10 @@ class Character(BaseModel):
     # Character Features
     features_and_traits: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
+    special_abilities: list[SpecialAbility] = Field(
+        default_factory=list,
+        description="Special abilities, racial features, class features, etc."
+    )
 
     # Misc
     inspiration: bool = False
@@ -423,9 +523,18 @@ class Monster(BaseModel):
     condition_immunities: list[str] = Field(default_factory=list)
 
     # Skills & Senses
-    saving_throws: dict[str, int] = Field(default_factory=dict)  # ability: modifier
-    skills: dict[str, int] = Field(default_factory=dict)  # skill: modifier
-    senses: list[str] = Field(default_factory=list)  # darkvision, blindsight, etc.
+    saving_throws: dict[str, int] = Field(
+        default_factory=dict,
+        description="Saving throw modifiers for abilities with proficiency. Key: ability name (e.g., 'dexterity'), Value: total modifier. Only include abilities with proficiency; others use base ability modifier."
+    )
+    skills: dict[str, int] = Field(
+        default_factory=dict,
+        description="Skill modifiers for skills with proficiency. Key: skill name (e.g., 'stealth'), Value: total modifier. Only include skills with proficiency; others use base ability modifier."
+    )
+    senses: list[str] = Field(
+        default_factory=list,
+        description="Special senses the monster has (e.g., 'darkvision 60 ft.', 'blindsight 30 ft.')"
+    )
     languages: list[str] = Field(default_factory=list)
 
     # Special Abilities
@@ -670,6 +779,12 @@ class TranscriptTree(TranscriptNode):
 
 __all__ = [
     "AbilityScore",
+    "SavingThrowProficiency",
+    "SkillProficiency",
+    "SavingThrow",
+    "Skill",
+    "STANDARD_SKILLS",
+    "STANDARD_SAVING_THROWS",
     "CharacterClass",
     "Race",
     "Item",

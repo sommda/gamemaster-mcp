@@ -174,8 +174,6 @@ class TestToolTags:
         # Known tools that currently don't have mode tags
         # These might be internal/meta tools or need to be tagged
         known_untagged = {
-            'get_character',
-            'update_character',
             'calculate_experience',
             'record_interaction',
             'record_interaction_with_tools',
