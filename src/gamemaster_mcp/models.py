@@ -420,6 +420,82 @@ class NPC(BaseModel):
     relationships: dict[str, str] = Field(default_factory=dict)  # character_name: relationship
 
 
+class LocationScale(str, Enum):
+    """Scale/scope of a location."""
+    CONTINENT = "continent"        # Entire continent
+    REGION = "region"              # Large region (e.g., "The North")
+    KINGDOM = "kingdom"            # Kingdom or large territory
+    PROVINCE = "province"          # Province or county
+    AREA = "area"                  # General area (e.g., "Mirkwood Forest")
+    SETTLEMENT = "settlement"      # City, town, village
+    DISTRICT = "district"          # City district or neighborhood
+    BUILDING = "building"          # Individual building or dungeon
+    ROOM = "room"                  # Room within a building
+    LOCAL = "local"                # Small local feature (default)
+
+
+class LocationType(str, Enum):
+    """Structured location type classification."""
+
+    # Settlements
+    METROPOLIS = "metropolis"      # Huge city (100k+)
+    CITY = "city"                  # Large city (10k-100k)
+    TOWN = "town"                  # Town (1k-10k)
+    VILLAGE = "village"            # Village (100-1k)
+    HAMLET = "hamlet"              # Hamlet (<100)
+    OUTPOST = "outpost"            # Military or trading outpost
+
+    # Structures
+    CASTLE = "castle"
+    FORTRESS = "fortress"
+    TOWER = "tower"
+    TEMPLE = "temple"
+    SHRINE = "shrine"
+    RUINS = "ruins"
+    DUNGEON = "dungeon"
+    CAVE = "cave"
+    MINE = "mine"
+
+    # Buildings
+    TAVERN = "tavern"
+    INN = "inn"
+    SHOP = "shop"
+    GUILD_HALL = "guild_hall"
+    LIBRARY = "library"
+    MANOR = "manor"
+    HOUSE = "house"
+
+    # Natural
+    LIGHT_FOREST = "light_forest"
+    FOREST = "forest"
+    DENSE_FOREST = "dense_forest"
+    MOUNTAIN = "mountain"
+    VALLEY = "valley"
+    PLAINS = "plains"
+    DESERT = "desert"
+    SWAMP = "swamp"
+    RIVER = "river"
+    LAKE = "lake"
+    COAST = "coast"
+    ISLAND = "island"
+
+    # Regions
+    KINGDOM = "kingdom"
+    PROVINCE = "province"
+    TERRITORY = "territory"
+    REGION = "region"
+    DISTRICT = "district"
+
+    # Special
+    PLANAR = "planar"              # Outer planes location
+    EXTRAPLANAR = "extraplanar"    # Demiplane, pocket dimension
+    MAGICAL = "magical"            # Magically created/altered
+    MOBILE = "mobile"              # Moving location (ship, wagon, etc.)
+
+    # Other
+    OTHER = "other"
+
+
 class Location(BaseModel):
     """Geographic location or settlement."""
 
@@ -433,6 +509,33 @@ class Location(BaseModel):
     npcs: list[str] = Field(default_factory=list)  # NPC names
     connections: list[str] = Field(default_factory=list)  # Connected locations
     notes: str = ""
+
+    # Map Integration (NEW)
+    primary_map: Annotated[
+        str | None,
+        Field(description="Name of the HexMap this location appears on")
+    ] = None
+
+    hex_coordinate: Annotated[
+        "HexCoordinate | None",
+        Field(description="Position on the hex map")
+    ] = None
+
+    # Hierarchy (NEW)
+    parent_location_id: Annotated[
+        str | None,
+        Field(description="ID of parent location (e.g., 'Bree' is parent of 'The Prancing Pony')")
+    ] = None
+
+    child_locations: Annotated[
+        list[str],
+        Field(description="IDs of locations contained within this one")
+    ] = Field(default_factory=list)
+
+    location_scale: Annotated[
+        LocationScale,
+        Field(description="Scale/scope of this location")
+    ] = LocationScale.LOCAL
 
 
 class Quest(BaseModel):
@@ -604,10 +707,20 @@ class Campaign(BaseModel):
     quests: dict[str, Quest] = Field(default_factory=dict)
     encounters: dict[str, CombatEncounter] = Field(default_factory=dict)
     sessions: list[SessionNote] = Field(default_factory=list)
+    hex_maps: dict[str, "HexMap"] = Field(
+        default_factory=dict,
+        description="Hex maps for outdoor/wilderness areas, indexed by map name"
+    )
     game_state: GameState
     world_notes: str = ""
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime | None = Field(default_factory=datetime.now)
+
+    # Location Hierarchy (NEW)
+    root_location_id: Annotated[
+        str | None,
+        Field(description="ID of the root location representing the entire game world")
+    ] = None
 
     def get_setting(self) -> str:
         """Return the setting details for the active campaign."""
@@ -633,6 +746,275 @@ class EventType(str, Enum):
     CHARACTER = "character"
     WORLD = "world"
     SESSION = "session"
+
+
+# ========================================
+# Hex Mapping Models
+# ========================================
+
+class TerrainType(str, Enum):
+    """Terrain types for hexagonal map cells."""
+    # Grasslands and vegetation
+    GRASS = "grass"
+    SCRUB = "scrub"
+    PLAINS = "plains"
+
+    # Forests
+    FOREST = "forest"
+    LIGHT_FOREST = "light_forest"
+    DENSE_FOREST = "dense_forest"
+    JUNGLE = "jungle"
+
+    # Wetlands
+    MARSH = "marsh"
+    SWAMP = "swamp"
+
+    # Elevation
+    HILLS = "hills"
+    MOUNTAINS = "mountains"
+
+    # Arid
+    DESERT = "desert"
+    BADLANDS = "badlands"
+    WASTELAND = "wasteland"
+
+    # Cold
+    TUNDRA = "tundra"
+    GLACIER = "glacier"
+
+    # Special
+    VOLCANIC = "volcanic"
+    COASTAL = "coastal"
+    WATER = "water"
+
+    # Populated
+    URBAN = "urban"
+    FARMLAND = "farmland"
+
+class HexSide(str, Enum):
+    """Sides of a hex for roads, rivers, and POI positioning."""
+    NORTH = "north"
+    NORTHEAST = "northeast"
+    SOUTHEAST = "southeast"
+    SOUTH = "south"
+    SOUTHWEST = "southwest"
+    NORTHWEST = "northwest"
+    CENTER = "center"
+
+
+class POIType(str, Enum):
+    """Types of points of interest."""
+    CITY = "city"
+    TOWN = "town"
+    VILLAGE = "village"
+    DUNGEON = "dungeon"
+    RUINS = "ruins"
+    CASTLE = "castle"
+    TEMPLE = "temple"
+    TOWER = "tower"
+    CAVE = "cave"
+    INN = "inn"
+    CAMP = "camp"
+    SHRINE = "shrine"
+    LANDMARK = "landmark"
+
+
+class HexCoordinate(BaseModel):
+    """Offset coordinate system for hexagonal grids (odd-q offset)."""
+    x: Annotated[int, Field(description="Column coordinate (0=leftmost, increases eastward)")]
+    y: Annotated[int, Field(description="Row coordinate (0=topmost, increases southward)")]
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+    def __eq__(self, other):
+        if not isinstance(other, HexCoordinate):
+            return False
+        return self.x == other.x and self.y == other.y
+
+    def to_cube(self) -> tuple[int, int, int]:
+        """Convert offset coordinates to cube coordinates (q, r, s) for distance calculations.
+
+        Cube coordinates satisfy: q + r + s = 0
+        This conversion uses the odd-q offset formula.
+        """
+        q = self.x
+        r = self.y - (self.x - (self.x & 1)) // 2
+        s = -q - r
+        return (q, r, s)
+
+    def distance_to(self, other: "HexCoordinate") -> int:
+        """Calculate distance in hexes using cube coordinates."""
+        q1, r1, s1 = self.to_cube()
+        q2, r2, s2 = other.to_cube()
+        return (abs(q1 - q2) + abs(r1 - r2) + abs(s1 - s2)) // 2
+
+
+class Road(BaseModel):
+    """A road passing through a hex."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    start_point: Annotated[
+        HexSide | None,
+        Field(description="Where the road enters: a hex side or CENTER. None if road originates at center of this hex")
+    ] = None
+    end_point: Annotated[
+        HexSide | None,
+        Field(description="Where the road exits: a hex side or CENTER. None if road terminates at center of this hex")
+    ] = None
+    road_type: Annotated[
+        str,
+        Field(description="Type of road (e.g., 'highway', 'path', 'trail')")
+    ] = "road"
+    condition: Annotated[
+        str,
+        Field(description="Condition of the road (e.g., 'well-maintained', 'overgrown', 'ruined')")
+    ] = "fair"
+    notes: str = ""
+
+
+class River(BaseModel):
+    """A river passing through a hex."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    start_point: Annotated[
+        HexSide | None,
+        Field(description="Where river enters: a hex side or CENTER. None if river originates at center (source)")
+    ] = None
+    end_point: Annotated[
+        HexSide | None,
+        Field(description="Where river exits: a hex side or CENTER. None if river terminates at center (lake/ocean)")
+    ] = None
+    width: Annotated[
+        str,
+        Field(description="Width category (e.g., 'stream', 'river', 'wide river')")
+    ] = "river"
+    navigable: Annotated[bool, Field(description="Whether the river is navigable by boat")] = False
+    ford_location: Annotated[
+        str | None,
+        Field(description="Description of where the river can be forded, if applicable")
+    ] = None
+    notes: str = ""
+
+
+class PointOfInterest(BaseModel):
+    """A point of interest within a hex."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    name: str
+    poi_type: POIType
+    description: str
+    location_id: Annotated[
+        str | None,
+        Field(description="ID of associated Location object if this POI has detailed data")
+    ] = None
+    discovered: Annotated[bool, Field(description="Whether the party has discovered this POI")] = False
+    position: Annotated[
+        HexSide,
+        Field(description="Position within hex (CENTER or a specific side/edge)")
+    ] = HexSide.CENTER
+    notes: str = ""
+
+
+class Hex(BaseModel):
+    """A single hex on the map."""
+
+    coordinate: HexCoordinate
+    terrain: TerrainType
+    roads: list[Road] = Field(default_factory=list)
+    rivers: list[River] = Field(default_factory=list)
+    pois: list[PointOfInterest] = Field(default_factory=list)
+    elevation: Annotated[
+        int | None,
+        Field(description="Elevation in meters above sea level")
+    ] = None
+    explored: Annotated[bool, Field(description="Whether the party has explored this hex")] = False
+    visibility: Annotated[
+        str,
+        Field(description="Visibility category (e.g., 'clear', 'obscured', 'hidden')")
+    ] = "clear"
+    notes: str = ""
+
+
+class HexMap(BaseModel):
+    """A complete hex map representing a kingdom or region."""
+
+    id: str = Field(default_factory=lambda: random(length=8))
+    name: str
+    description: str
+    hex_diameter_km: Annotated[float, Field(description="Diameter of each hex in kilometers")] = 10.0
+    hexes: Annotated[
+        dict[str, Hex],
+        Field(description="Hexes indexed by 'x,y' coordinate string")
+    ] = Field(default_factory=dict)
+    default_terrain: TerrainType = TerrainType.GRASS
+    bounds: Annotated[
+        dict[str, int] | None,
+        Field(description="Map bounds as {min_x, max_x, min_y, max_y}")
+    ] = None
+    notes: str = ""
+
+    def _coord_key(self, coord: HexCoordinate) -> str:
+        """Generate dictionary key from coordinate."""
+        return f"{coord.x},{coord.y}"
+
+    def get_hex(self, coord: HexCoordinate) -> Hex | None:
+        """Get a hex at the given coordinate."""
+        return self.hexes.get(self._coord_key(coord))
+
+    def set_hex(self, hex: Hex) -> None:
+        """Add or update a hex in the map."""
+        self.hexes[self._coord_key(hex.coordinate)] = hex
+        self._update_bounds(hex.coordinate)
+
+    def _update_bounds(self, coord: HexCoordinate) -> None:
+        """Update map bounds to include the given coordinate."""
+        if self.bounds is None:
+            self.bounds = {
+                "min_x": coord.x,
+                "max_x": coord.x,
+                "min_y": coord.y,
+                "max_y": coord.y
+            }
+        else:
+            self.bounds["min_x"] = min(self.bounds["min_x"], coord.x)
+            self.bounds["max_x"] = max(self.bounds["max_x"], coord.x)
+            self.bounds["min_y"] = min(self.bounds["min_y"], coord.y)
+            self.bounds["max_y"] = max(self.bounds["max_y"], coord.y)
+
+    def get_neighbors(self, coord: HexCoordinate) -> dict[HexSide, Hex | None]:
+        """Get all neighboring hexes with their directions.
+
+        Uses odd-q offset coordinates where odd columns are shifted down.
+        """
+        # Neighbor offsets depend on whether column is even or odd
+        if coord.x % 2 == 0:
+            # Even column offsets
+            offsets = {
+                HexSide.NORTH: (0, -1),
+                HexSide.NORTHEAST: (1, -1),
+                HexSide.SOUTHEAST: (1, 0),
+                HexSide.SOUTH: (0, 1),
+                HexSide.SOUTHWEST: (-1, 0),
+                HexSide.NORTHWEST: (-1, -1)
+            }
+        else:
+            # Odd column offsets (shifted down)
+            offsets = {
+                HexSide.NORTH: (0, -1),
+                HexSide.NORTHEAST: (1, 0),
+                HexSide.SOUTHEAST: (1, 1),
+                HexSide.SOUTH: (0, 1),
+                HexSide.SOUTHWEST: (-1, 1),
+                HexSide.NORTHWEST: (-1, 0)
+            }
+
+        neighbors = {}
+        for direction, (dx, dy) in offsets.items():
+            neighbor_coord = HexCoordinate(x=coord.x + dx, y=coord.y + dy)
+            neighbors[direction] = self.get_hex(neighbor_coord)
+
+        return neighbors
 
 
 class AdventureEvent(BaseModel):
@@ -793,6 +1175,8 @@ __all__ = [
     "NPC",
     "Monster",
     "Location",
+    "LocationScale",
+    "LocationType",
     "Quest",
     "CombatEncounter",
     "SessionNote",
@@ -815,4 +1199,14 @@ __all__ = [
     "TranscriptCombat",
     "TranscriptAdventure",
     "TranscriptTree",
+    # Hex mapping models
+    "TerrainType",
+    "HexSide",
+    "POIType",
+    "HexCoordinate",
+    "Road",
+    "River",
+    "PointOfInterest",
+    "Hex",
+    "HexMap",
 ]

@@ -17,18 +17,28 @@ This document provides comprehensive documentation for all data models used in t
    - [Monster](#monster)
    - [Location](#location)
    - [Quest](#quest)
-4. [Equipment and Items](#equipment-and-items)
+4. [Hex Map Models](#hex-map-models)
+   - [HexMap](#hexmap)
+   - [Hex](#hex)
+   - [HexCoordinate](#hexcoordinate)
+   - [PointOfInterest](#pointofinterest)
+   - [Road](#road)
+   - [River](#river)
+   - [TerrainType](#terraintype)
+   - [HexSide](#hexside)
+   - [POIType](#poitype)
+5. [Equipment and Items](#equipment-and-items)
    - [Item](#item)
    - [Spell](#spell)
-5. [Combat Models](#combat-models)
+6. [Combat Models](#combat-models)
    - [CombatParticipant](#combatparticipant)
    - [Attack](#attack)
    - [CombatEncounter](#combatencounter)
-6. [Session Management](#session-management)
+7. [Session Management](#session-management)
    - [SessionNote](#sessionnote)
    - [AdventureEvent](#adventureevent)
    - [EventType](#eventtype)
-7. [Transcript Models](#transcript-models)
+8. [Transcript Models](#transcript-models)
    - [Transcript (Legacy)](#transcript-legacy)
    - [TranscriptEntry (Legacy)](#transcriptentry-legacy)
    - [TranscriptTree](#transcripttree)
@@ -36,7 +46,7 @@ This document provides comprehensive documentation for all data models used in t
    - [TranscriptCombat](#transcriptcombat)
    - [TranscriptAdventure](#transcriptadventure)
    - [Response Types](#response-types)
-8. [System Models](#system-models)
+9. [System Models](#system-models)
    - [GameStats](#gamestats)
 
 ---
@@ -59,8 +69,10 @@ The main container model that holds all campaign data.
 - `quests` (dict[str, Quest]): All quests indexed by title
 - `encounters` (dict[str, CombatEncounter]): Combat encounters indexed by name
 - `sessions` (list[SessionNote]): List of session notes
+- `hex_maps` (dict[str, HexMap]): Hex maps for outdoor/wilderness areas, indexed by map name
 - `game_state` (GameState): Current game state
 - `world_notes` (str): Additional world-building notes
+- `root_location_id` (str | None): ID of the root location representing the entire game world
 - `created_at` (datetime): Creation timestamp
 - `updated_at` (datetime | None): Last update timestamp
 
@@ -385,9 +397,9 @@ Monster instance for combat encounters and active threats.
 
 ### Location
 
-Geographic location or settlement.
+Geographic location or settlement with hierarchical organization and hex map integration.
 
-**Fields:**
+**Basic Fields:**
 - `id` (str): Unique 8-character identifier
 - `name` (str): Location name
 - `location_type` (str): Type (city, town, village, dungeon, forest, etc.)
@@ -399,7 +411,37 @@ Geographic location or settlement.
 - `connections` (list[str]): Connected location names
 - `notes` (str): Additional notes
 
-**Example:**
+**Hierarchy Fields (NEW):**
+- `parent_location_id` (str | None): ID of parent location in hierarchy (e.g., 'Bree' is parent of 'The Prancing Pony')
+- `child_locations` (list[str]): IDs of locations contained within this one
+- `location_scale` (LocationScale): Scale/scope of this location (default: LOCAL)
+
+**Map Integration Fields (NEW):**
+- `primary_map` (str | None): Name of the HexMap this location appears on
+- `hex_coordinate` (HexCoordinate | None): Position on the hex map (x, y coordinates)
+
+**LocationScale Enum:**
+- `CONTINENT`: Entire continent
+- `REGION`: Large region (e.g., "The North")
+- `KINGDOM`: Kingdom or large territory
+- `PROVINCE`: Province or county
+- `AREA`: General area (e.g., "Mirkwood Forest")
+- `SETTLEMENT`: City, town, village
+- `DISTRICT`: City district or neighborhood
+- `BUILDING`: Individual building or dungeon
+- `ROOM`: Room within a building
+- `LOCAL`: Small local feature (default)
+
+**LocationType Enum (40+ structured types):**
+- Settlements: METROPOLIS, CITY, TOWN, VILLAGE, HAMLET, OUTPOST
+- Structures: CASTLE, FORTRESS, TOWER, TEMPLE, SHRINE, RUINS, DUNGEON, CAVE, MINE
+- Buildings: TAVERN, INN, SHOP, GUILD_HALL, LIBRARY, MANOR, HOUSE
+- Natural: FOREST, MOUNTAIN, VALLEY, PLAINS, DESERT, SWAMP, RIVER, LAKE, COAST, ISLAND
+- Regions: KINGDOM, PROVINCE, TERRITORY, REGION, DISTRICT
+- Special: PLANAR, EXTRAPLANAR, MAGICAL, MOBILE
+- Other: OTHER
+
+**Example (with hierarchy and map integration):**
 ```json
 {
   "id": "LOC12345",
@@ -410,9 +452,22 @@ Geographic location or settlement.
   "government": "Council of Lords",
   "notable_features": ["Castle Ward", "Dock Ward", "Undermountain"],
   "npcs": ["Lord Piergeiron", "Durnan"],
-  "connections": ["Neverwinter", "Baldur's Gate"]
+  "connections": ["Neverwinter", "Baldur's Gate"],
+  "parent_location_id": "REG56789",
+  "child_locations": ["DIST001", "DIST002", "DIST003"],
+  "location_scale": "settlement",
+  "primary_map": "Sword Coast",
+  "hex_coordinate": {
+    "x": 12,
+    "y": 8
+  }
 }
 ```
+
+**Backward Compatibility:**
+- All new fields are optional with sensible defaults
+- Existing locations without hierarchy work as top-level orphans
+- Orphaned locations (parent_location_id = None) are implicitly children of the campaign root if one is set
 
 ### Quest
 
@@ -447,6 +502,282 @@ Quest or mission model.
   "reward": "1000 gold pieces and royal favor"
 }
 ```
+
+---
+
+## Hex Map Models
+
+The hex map system provides wilderness exploration, travel, and outdoor adventure tracking using a hexagonal grid system. Maps integrate with Locations and support Points of Interest, terrain types, roads, and rivers.
+
+**Current Map Concept:**
+The server automatically determines the "current map" based on the current location in the campaign's game state. When a location has a `primary_map` field, that map becomes the current map. If the current location has no map, the system recursively searches up the location hierarchy (checking parent locations) until a map is found. This allows hex map tools to omit the `map_name` parameter and automatically use the contextually appropriate map based on where the party is located.
+
+### HexMap
+
+Top-level container for a hex-based wilderness map.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): Map name (e.g., "Sword Coast", "Barovia")
+- `description` (str | None): Map description
+- `hex_size_miles` (int): Miles per hex side (default: 6 miles, representing ~31 sq mi per hex)
+- `default_terrain` (TerrainType): Default terrain for unspecified hexes
+- `hexes` (dict[str, Hex]): All hexes indexed by coordinate key "x,y"
+- `roads` (list[Road]): All roads on this map
+- `rivers` (list[River]): All rivers on this map
+- `notes` (str): Additional map notes
+
+**Methods:**
+- `_hex_key(coord: HexCoordinate) -> str`: Generate coordinate key
+- `get_hex(coord: HexCoordinate) -> Hex | None`: Get hex at coordinate
+- `set_hex(hex: Hex) -> None`: Set hex at its coordinate
+- `get_neighbors(coord: HexCoordinate) -> list[HexCoordinate]`: Get adjacent hex coordinates
+
+**Example:**
+```json
+{
+  "id": "MAP12345",
+  "name": "Sword Coast",
+  "description": "The northwestern coast of Faerûn",
+  "hex_size_miles": 6,
+  "default_terrain": "plains",
+  "hexes": {
+    "12,8": {
+      "coordinate": {"x": 12, "y": 8},
+      "terrain": "urban",
+      "pois": [
+        {
+          "name": "Waterdeep",
+          "poi_type": "city",
+          "description": "The City of Splendors"
+        }
+      ]
+    }
+  },
+  "roads": [...],
+  "rivers": [...]
+}
+```
+
+### Hex
+
+Individual hex cell on a hex map.
+
+**Fields:**
+- `coordinate` (HexCoordinate): Position on the map
+- `terrain` (TerrainType): Primary terrain type
+- `pois` (list[PointOfInterest]): Points of interest in this hex
+- `explored` (bool): Whether party has explored this hex
+- `visibility` (str): Visibility category (e.g., 'clear', 'obscured', 'hidden')
+- `notes` (str): Additional hex notes
+- `elevation` (int | None): Elevation in meters above sea level
+- `roads` (list[Road]): Roads passing through this hex
+- `rivers` (list[River]): Rivers flowing through this hex
+
+**Example:**
+```json
+{
+  "coordinate": {"x": 5, "y": 3},
+  "terrain": "forest",
+  "pois": [
+    {
+      "name": "Abandoned Tower",
+      "poi_type": "ruins",
+      "discovered": false
+    }
+  ],
+  "explored": true,
+  "visibility": "clear",
+  "notes": "Dense pine forest",
+  "elevation": 120,
+  "roads": [],
+  "rivers": []
+}
+```
+
+### HexCoordinate
+
+Offset coordinate system for hexagonal grids.
+
+**Fields:**
+- `x` (int): X coordinate (column)
+- `y` (int): Y coordinate (row)
+
+**Example:**
+```json
+{
+  "x": 12,
+  "y": 8
+}
+```
+
+### PointOfInterest
+
+Notable feature or location within a hex.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str): POI name
+- `poi_type` (POIType): Type of point of interest
+- `description` (str | None): POI description
+- `location_id` (str | None): Associated Location ID for bidirectional linking
+- `discovered` (bool): Whether party has discovered this POI
+- `notes` (str): Additional POI notes
+
+**Example:**
+```json
+{
+  "id": "POI12345",
+  "name": "The Prancing Pony",
+  "poi_type": "inn",
+  "description": "A cozy inn in Bree",
+  "location_id": "LOC67890",
+  "discovered": true,
+  "notes": "Party's favorite rest stop"
+}
+```
+
+### Road
+
+Road connecting hexes on the map.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str | None): Road name (e.g., "King's Road")
+- `path` (list[HexCoordinate]): Hexes the road passes through
+- `road_type` (str): Road quality ("highway", "road", "trail")
+- `notes` (str): Additional road notes
+
+**Example:**
+```json
+{
+  "id": "ROAD123",
+  "name": "King's Road",
+  "path": [
+    {"x": 5, "y": 3},
+    {"x": 6, "y": 3},
+    {"x": 7, "y": 4}
+  ],
+  "road_type": "highway",
+  "notes": "Well-maintained royal highway"
+}
+```
+
+### River
+
+River or waterway on the map.
+
+**Fields:**
+- `id` (str): Unique 8-character identifier
+- `name` (str | None): River name
+- `path` (list[dict]): River segments with hex coordinates and entry/exit sides
+  - Each segment: `{"hex": HexCoordinate, "entry_side": HexSide, "exit_side": HexSide}`
+- `river_width` (str): River width category ("stream", "river", "wide_river")
+- `notes` (str): Additional river notes
+
+**Example:**
+```json
+{
+  "id": "RIV12345",
+  "name": "Dessarin River",
+  "path": [
+    {
+      "hex": {"x": 3, "y": 2},
+      "entry_side": "N",
+      "exit_side": "SE"
+    },
+    {
+      "hex": {"x": 3, "y": 3},
+      "entry_side": "NW",
+      "exit_side": "S"
+    }
+  ],
+  "river_width": "river",
+  "notes": "Flows from the Dessarin Hills"
+}
+```
+
+### TerrainType
+
+Enumeration of terrain types for hexes (24 types total).
+
+**Grasslands and Vegetation:**
+- `GRASS`: Open grassland
+- `SCRUB`: Scrubland with sparse vegetation
+- `PLAINS`: Open plains
+
+**Forests:**
+- `FOREST`: Standard wooded area
+- `LIGHT_FOREST`: Lightly wooded area
+- `DENSE_FOREST`: Heavily wooded, difficult terrain
+- `JUNGLE`: Dense tropical forest
+
+**Wetlands:**
+- `MARSH`: Marshy wetland
+- `SWAMP`: Swampy wetlands
+
+**Elevation:**
+- `HILLS`: Rolling hills
+- `MOUNTAINS`: Mountainous terrain
+
+**Arid:**
+- `DESERT`: Arid wasteland
+- `BADLANDS`: Rocky, eroded terrain
+- `WASTELAND`: Blasted or cursed land
+
+**Cold:**
+- `TUNDRA`: Frozen plains
+- `GLACIER`: Ice and glacial terrain
+
+**Special:**
+- `VOLCANIC`: Volcanic terrain
+- `COASTAL`: Coastline
+- `WATER`: Lakes, seas, oceans
+
+**Populated:**
+- `URBAN`: Cities and settlements
+- `FARMLAND`: Agricultural land
+
+### HexSide
+
+Enumeration of hex sides for rivers and borders.
+
+**Values:**
+- `N`: North
+- `NE`: Northeast
+- `SE`: Southeast
+- `S`: South
+- `SW`: Southwest
+- `NW`: Northwest
+
+### POIType
+
+Enumeration of point of interest types (13 types total).
+
+**Settlements:**
+- `CITY`: Major city
+- `TOWN`: Town
+- `VILLAGE`: Small village
+- `INN`: Inn or tavern
+
+**Structures:**
+- `CASTLE`: Castle or fortress
+- `TEMPLE`: Temple or religious site
+- `TOWER`: Wizard tower or watchtower
+- `SHRINE`: Small shrine
+
+**Exploration:**
+- `DUNGEON`: Dungeon entrance
+- `RUINS`: Ancient ruins
+- `CAVE`: Cave entrance
+- `CAMP`: Encampment
+- `LANDMARK`: Notable landmark
+
+**Location and POI Integration:**
+- POIs can reference Location objects via `location_id`
+- Locations can reference their primary hex map via `primary_map` and `hex_coordinate`
+- Use `sync_location_and_poi` tool to keep them synchronized
+- This allows seamless integration between narrative locations and wilderness exploration
 
 ---
 

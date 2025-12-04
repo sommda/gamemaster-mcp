@@ -16,7 +16,10 @@ from .models import (
     Campaign,
     Character,
     GameState,
+    HexCoordinate,
+    HexMap,
     Location,
+    LocationScale,
     Quest,
     ResponseText,
     ResponseTools,
@@ -1003,6 +1006,433 @@ class DnDStorage:
             raise ValueError("No current campaign")
         return list(self._current_campaign.locations.keys())
 
+    # Root Location Management
+    def get_root_location(self) -> Location | None:
+        """Get the campaign's root location, or None if not set."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        if not self._current_campaign.root_location_id:
+            return None
+
+        # Find location by ID
+        for location in self._current_campaign.locations.values():
+            if location.id == self._current_campaign.root_location_id:
+                return location
+
+        return None
+
+    def set_root_location(self, location_id: str) -> None:
+        """Set a location as the campaign root.
+
+        Args:
+            location_id: ID of location to set as root
+
+        Raises:
+            ValueError: If location doesn't exist or already has a parent
+        """
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        # Find location by ID
+        location = None
+        for loc in self._current_campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        if not location:
+            raise ValueError(f"Location with ID '{location_id}' not found")
+
+        if location.parent_location_id is not None:
+            raise ValueError(
+                f"Location '{location.name}' already has a parent and cannot be set as root"
+            )
+
+        self._current_campaign.root_location_id = location_id
+        self._current_campaign.updated_at = datetime.now()
+        self._save_campaign()
+        logger.info(f"✅ Set '{location.name}' as campaign root location")
+
+    def get_orphaned_locations(self) -> list[Location]:
+        """Get all locations with no parent (excluding root).
+
+        Returns:
+            List of locations that should be children of root but aren't explicitly set.
+        """
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        root_id = self._current_campaign.root_location_id
+        orphans = []
+
+        for location in self._current_campaign.locations.values():
+            # Skip root location itself
+            if root_id and location.id == root_id:
+                continue
+            # Include if no parent
+            if location.parent_location_id is None:
+                orphans.append(location)
+
+        return orphans
+
+    def get_unmigrated_locations(self) -> list[Location]:
+        """Get all locations that are isolated (not integrated into hierarchy or maps).
+
+        Returns:
+            List of locations where:
+            - parent_location_id is None (and not root)
+            - child_locations is empty
+            - primary_map is None
+        """
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        root_id = self._current_campaign.root_location_id
+        unmigrated = []
+
+        for location in self._current_campaign.locations.values():
+            # Skip root location itself
+            if root_id and location.id == root_id:
+                continue
+
+            # Check if location is completely isolated
+            is_unmigrated = (
+                location.parent_location_id is None
+                and len(location.child_locations) == 0
+                and location.primary_map is None
+            )
+
+            if is_unmigrated:
+                unmigrated.append(location)
+
+        return unmigrated
+
+    def get_top_level_locations(self) -> list[Location]:
+        """Get all top-level locations (children of root, or orphans if no root)."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        root_id = self._current_campaign.root_location_id
+
+        if root_id:
+            # Get all locations with no parent (excluding root itself)
+            top_level = []
+            for location in self._current_campaign.locations.values():
+                if location.id != root_id and location.parent_location_id is None:
+                    top_level.append(location)
+            return top_level
+        else:
+            # No root, return all orphans
+            return self.get_orphaned_locations()
+
+    # Location Hierarchy Management
+    def set_parent_location(self, child_id: str, parent_id: str | None) -> None:
+        """Set the parent location for a location (updates both child and parent).
+
+        Args:
+            child_id: ID of child location
+            parent_id: ID of parent location, or None to make child a top-level location
+        """
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        # Find child location
+        child = None
+        for loc in self._current_campaign.locations.values():
+            if loc.id == child_id:
+                child = loc
+                break
+
+        if not child:
+            raise ValueError(f"Child location with ID '{child_id}' not found")
+
+        # Remove child from old parent's child_locations
+        if child.parent_location_id:
+            old_parent = None
+            for loc in self._current_campaign.locations.values():
+                if loc.id == child.parent_location_id:
+                    old_parent = loc
+                    break
+            if old_parent and child_id in old_parent.child_locations:
+                old_parent.child_locations.remove(child_id)
+
+        # Set new parent
+        child.parent_location_id = parent_id
+
+        # Add child to new parent's child_locations
+        if parent_id:
+            parent = None
+            for loc in self._current_campaign.locations.values():
+                if loc.id == parent_id:
+                    parent = loc
+                    break
+
+            if not parent:
+                raise ValueError(f"Parent location with ID '{parent_id}' not found")
+
+            if child_id not in parent.child_locations:
+                parent.child_locations.append(child_id)
+
+        self._current_campaign.updated_at = datetime.now()
+        self._save_campaign()
+        logger.info(f"✅ Set parent of '{child.name}' to {parent.name if parent_id and parent else 'None'}")
+
+    def get_location_hierarchy(self, location_id: str) -> dict:
+        """Get full hierarchy tree for a location (parents and children).
+
+        Returns dict with 'ancestors' (list from root down) and 'descendants' (nested dict).
+        """
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        # Find location
+        location = None
+        for loc in self._current_campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        if not location:
+            raise ValueError(f"Location with ID '{location_id}' not found")
+
+        # Build ancestor list
+        ancestors = []
+        current = location
+        visited = set()  # Prevent infinite loops
+
+        while current.parent_location_id and current.id not in visited:
+            visited.add(current.id)
+            parent = None
+            for loc in self._current_campaign.locations.values():
+                if loc.id == current.parent_location_id:
+                    parent = loc
+                    break
+            if parent:
+                ancestors.insert(0, {"id": parent.id, "name": parent.name, "scale": parent.location_scale})
+                current = parent
+            else:
+                break
+
+        # Add root if exists and not already in ancestors
+        root = self.get_root_location()
+        if root and (not ancestors or ancestors[0]["id"] != root.id):
+            # Check if location is actually descended from root
+            if location.parent_location_id is None and location.id != root.id:
+                # Orphaned location - implicitly child of root
+                ancestors.insert(0, {"id": root.id, "name": root.name, "scale": root.location_scale})
+
+        # Build descendants tree
+        def build_descendants_tree(loc_id: str) -> dict:
+            loc = None
+            for location_obj in self._current_campaign.locations.values():
+                if location_obj.id == loc_id:
+                    loc = location_obj
+                    break
+
+            if not loc:
+                return {}
+
+            children = []
+            for child_id in loc.child_locations:
+                child_tree = build_descendants_tree(child_id)
+                if child_tree:
+                    children.append(child_tree)
+
+            return {
+                "id": loc.id,
+                "name": loc.name,
+                "scale": loc.location_scale,
+                "children": children
+            }
+
+        descendants = build_descendants_tree(location_id)
+
+        return {
+            "ancestors": ancestors,
+            "current": {"id": location.id, "name": location.name, "scale": location.location_scale},
+            "descendants": descendants.get("children", [])
+        }
+
+    def get_locations_by_scale(self, scale: LocationScale) -> list[Location]:
+        """Get all locations at a specific scale level."""
+
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        return [
+            loc for loc in self._current_campaign.locations.values()
+            if loc.location_scale == scale
+        ]
+
+    def get_current_map_name(self) -> str | None:
+        """Get the name of the current hex map based on current location.
+
+        Returns the primary_map from:
+        1. The current location (if it has one)
+        2. The current location's parent (recursively up the hierarchy)
+        3. None if no map found
+        """
+        if not self._current_campaign:
+            return None
+
+        # Get current location name from game state
+        current_loc_name = self._current_campaign.game_state.current_location
+        if not current_loc_name:
+            return None
+
+        # Find the current location object
+        current_location = self.get_location(current_loc_name)
+        if not current_location:
+            return None
+
+        # Check if current location has a map
+        if current_location.primary_map:
+            return current_location.primary_map
+
+        # Recursively check parent locations
+        visited = set()  # Prevent infinite loops
+        current = current_location
+
+        while current.parent_location_id and current.id not in visited:
+            visited.add(current.id)
+
+            # Find parent location by ID
+            parent = None
+            for loc in self._current_campaign.locations.values():
+                if loc.id == current.parent_location_id:
+                    parent = loc
+                    break
+
+            if not parent:
+                break
+
+            if parent.primary_map:
+                return parent.primary_map
+
+            current = parent
+
+        return None
+
+    # Map Integration
+    def sync_location_with_poi(self, location_id: str, poi_id: str) -> None:
+        """Synchronize a Location with its corresponding PointOfInterest."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        # Find location
+        location = None
+        for loc in self._current_campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        if not location:
+            raise ValueError(f"Location with ID '{location_id}' not found")
+
+        # Find POI in any hex map
+        poi = None
+        map_name = None
+        for hex_map in self._current_campaign.hex_maps.values():
+            for hex_obj in hex_map.hexes.values():
+                for p in hex_obj.pois:
+                    if p.id == poi_id:
+                        poi = p
+                        map_name = hex_map.name
+                        break
+                if poi:
+                    break
+            if poi:
+                break
+
+        if not poi:
+            raise ValueError(f"POI with ID '{poi_id}' not found in any hex map")
+
+        # Sync: set location's primary_map and hex_coordinate from POI
+        from .models import HexCoordinate
+
+        location.primary_map = map_name
+
+        # Find the hex containing this POI
+        for hex_map in self._current_campaign.hex_maps.values():
+            if hex_map.name == map_name:
+                for hex_obj in hex_map.hexes.values():
+                    if any(p.id == poi_id for p in hex_obj.pois):
+                        location.hex_coordinate = HexCoordinate(
+                            x=hex_obj.coordinate.x,
+                            y=hex_obj.coordinate.y
+                        )
+                        break
+
+        # Sync POI's location_id
+        poi.location_id = location_id
+
+        self._current_campaign.updated_at = datetime.now()
+        self._save_campaign()
+        logger.info(f"✅ Synced location '{location.name}' with POI '{poi.name}'")
+
+    def get_locations_on_map(self, map_name: str) -> list[Location]:
+        """Get all locations that appear on a specific map."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        return [
+            loc for loc in self._current_campaign.locations.values()
+            if loc.primary_map == map_name
+        ]
+
+    def update_location_coordinate(
+        self,
+        location_id: str,
+        map_name: str,
+        coordinate: HexCoordinate
+    ) -> None:
+        """Update location's coordinate on a map (syncs with POI if exists)."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        # Find location
+        location = None
+        for loc in self._current_campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        if not location:
+            raise ValueError(f"Location with ID '{location_id}' not found")
+
+        # Update location
+        location.primary_map = map_name
+        location.hex_coordinate = coordinate
+
+        # Find and update POI if it exists
+        for hex_map in self._current_campaign.hex_maps.values():
+            for hex_obj in hex_map.hexes.values():
+                for poi in hex_obj.pois:
+                    if poi.location_id == location_id:
+                        # Move POI to new hex if needed
+                        if hex_obj.coordinate.x != coordinate.x or hex_obj.coordinate.y != coordinate.y:
+                            # Remove from old hex
+                            hex_obj.pois = [p for p in hex_obj.pois if p.id != poi.id]
+
+                            # Add to new hex
+                            target_hex = hex_map.get_hex(coordinate)
+                            if target_hex:
+                                target_hex.pois.append(poi)
+                            else:
+                                # Create new hex if it doesn't exist
+                                from .models import Hex
+                                new_hex = Hex(
+                                    coordinate=coordinate,
+                                    terrain=hex_map.default_terrain
+                                )
+                                new_hex.pois.append(poi)
+                                hex_map.set_hex(new_hex)
+
+        self._current_campaign.updated_at = datetime.now()
+        self._save_campaign()
+        logger.info(f"✅ Updated coordinate for '{location.name}' on map '{map_name}'")
+
     # Quest Management
     def add_quest(self, quest: Quest) -> None:
         """Add a quest to the current campaign."""
@@ -1164,3 +1594,43 @@ class DnDStorage:
         if transcript is None:
             raise ValueError("Failed to load transcript after adding entry")
         return transcript
+
+    # HexMap Management
+    def add_hex_map(self, hex_map: HexMap) -> None:
+        """Add a hex map to the current campaign."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        logger.info(f"➕ Adding hex map '{hex_map.name}' to campaign '{self._current_campaign.name}'.")
+        self._current_campaign.hex_maps[hex_map.name] = hex_map
+        self._current_campaign.updated_at = datetime.now()
+        self._save_campaign()
+        logger.debug(f"✅ Hex map '{hex_map.name}' added successfully.")
+
+    def get_hex_map(self, name: str) -> HexMap | None:
+        """Get a hex map by name."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+        if not name:
+            raise ValueError("Empty hex map name")
+        return self._current_campaign.hex_maps.get(name)
+
+    def delete_hex_map(self, name: str) -> None:
+        """Delete a hex map from the current campaign."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+
+        if name in self._current_campaign.hex_maps:
+            logger.info(f"🗑️ Deleting hex map '{name}' from campaign '{self._current_campaign.name}'.")
+            del self._current_campaign.hex_maps[name]
+            self._current_campaign.updated_at = datetime.now()
+            self._save_campaign()
+            logger.debug(f"✅ Hex map '{name}' deleted successfully.")
+        else:
+            logger.warning(f"⚠️ Hex map '{name}' not found for deletion.")
+
+    def list_hex_maps(self) -> list[str]:
+        """List all hex map names in the current campaign."""
+        if not self._current_campaign:
+            raise ValueError("No current campaign")
+        return list(self._current_campaign.hex_maps.keys())

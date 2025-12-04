@@ -11,6 +11,7 @@ This document provides comprehensive documentation for all MCP tools and resourc
    - [NPC Management](#npc-management)
    - [Monster Management](#monster-management)
    - [Location Management](#location-management)
+   - [Hex Map Management](#hex-map-management)
    - [Quest Management](#quest-management)
    - [Game State Management](#game-state-management)
    - [Combat Management](#combat-management)
@@ -26,13 +27,15 @@ This document provides comprehensive documentation for all MCP tools and resourc
 
 ## Overview
 
-The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.12+. It provides 30+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to hierarchical adventure tracking.
+The Gamemaster MCP Server is a comprehensive D&D campaign management server built with FastMCP 2.12+. It provides 40+ tools for managing all aspects of D&D campaigns, from character creation to monster encounters to wilderness hex mapping with hierarchical location organization.
 
 **Core Architecture:**
 - **Campaign-centric design**: All data is organized within [Campaign](DATA_MODELS.md#campaign) objects
 - **JSON persistence**: Campaigns stored as `{campaign_name}.json` files
 - **In-memory operations**: Changes happen in memory and auto-save to disk
 - **Event logging**: Separate adventure log for tracking campaign events
+- **Hierarchical locations**: Parent-child relationships for locations with campaign root support
+- **Hex map integration**: Wilderness exploration with hex-based maps linked to locations
 
 ## MCP Tools
 
@@ -297,8 +300,10 @@ Lists all monsters currently in the game state.
 
 ### Location Management
 
+Locations support hierarchical organization (parent-child relationships) and hex map integration for seamless wilderness exploration.
+
 #### `create_location`
-Creates a new geographic location or settlement.
+Creates a new geographic location or settlement with optional hierarchy and map placement.
 
 **Parameters:**
 - `name` (str, required): Location name
@@ -308,16 +313,39 @@ Creates a new geographic location or settlement.
 - `government` (str, optional): Government type
 - `notable_features` (list[str], optional): Notable features
 - `notes` (str, optional): Additional notes (default: "")
+- `parent_location_id` (str, optional): ID of parent location in hierarchy
+- `location_scale` (LocationScale, optional): Scale/scope (LOCAL, BUILDING, SETTLEMENT, AREA, etc.)
+- `primary_map` (str, optional): Name of hex map this location appears on
+- `hex_x` (int, optional): X coordinate on hex map
+- `hex_y` (int, optional): Y coordinate on hex map
 
-**Returns:** Success message with location name and type
+**Returns:** Success message with location details and hierarchy/map info if provided
+
+**Example:**
+```python
+create_location(
+    name="Waterdeep",
+    location_type="city",
+    description="The City of Splendors",
+    location_scale="settlement",
+    primary_map="Sword Coast",
+    hex_x=12,
+    hex_y=8
+)
+```
 
 #### `get_location`
-Gets detailed location information.
+Gets detailed location information including hierarchy and map placement.
 
 **Parameters:**
 - `name` (str, required): Location name
 
-**Returns:** Formatted location information including description, population, government, notable features, and notes
+**Returns:** Formatted location information including:
+- Basic info (ID, type, scale, description, population, government)
+- Hierarchy path from root (if applicable)
+- Child locations (nested tree view)
+- Map placement (map name and coordinates)
+- Notable features and notes
 
 #### `list_locations`
 Lists all locations in the current campaign.
@@ -325,6 +353,403 @@ Lists all locations in the current campaign.
 **Parameters:** None
 
 **Returns:** List of locations with their types
+
+#### `delete_location`
+Deletes a location from the campaign with optional recursive deletion of children.
+
+**Parameters:**
+- `location_id` (str, required): ID of location to delete
+- `recursive` (bool, optional): If True, delete all child locations. If False, prevent deletion if location has children (default: False)
+
+**Returns:** Success message with count of deleted locations
+
+**Note:** Similar to `rm -rf`, use recursive=True carefully!
+
+#### Root Location Management
+
+#### `get_root_location`
+Gets information about the campaign's root location.
+
+**Parameters:** None
+
+**Returns:** Root location details and list of top-level locations
+
+#### `set_root_location`
+Sets an existing location as the campaign root.
+
+**Parameters:**
+- `location_id` (str, required): ID of location to become root
+
+**Returns:** Success message with orphaned location count
+
+**Note:** The location must not have a parent. All orphaned locations become children of the new root.
+
+#### `get_top_level_locations`
+Lists all top-level locations (direct children of root, or orphans if no root).
+
+**Parameters:** None
+
+**Returns:** List of top-level locations with IDs and scales
+
+#### Hierarchy Management
+
+#### `set_location_parent`
+Sets or clears the parent location for a location.
+
+**Parameters:**
+- `child_location_id` (str, required): ID of child location
+- `parent_location_id` (str, optional): ID of parent location, or None to make child a top-level location
+
+**Returns:** Success message with parent-child relationship
+
+#### `get_location_hierarchy`
+Gets the hierarchical context for a location.
+
+**Parameters:**
+- `location_id` (str, required): ID of location to get hierarchy for
+- `include_children` (bool, optional): Include child locations (default: True)
+- `include_ancestors` (bool, optional): Include ancestor locations (default: True)
+
+**Returns:** Full hierarchy tree with:
+- Path from root (ancestor chain)
+- Current location
+- Child locations (nested tree)
+
+#### `list_child_locations`
+Lists all child locations within a parent location.
+
+**Parameters:**
+- `parent_location_id` (str, required): ID of parent location
+- `recursive` (bool, optional): If True, list all descendants recursively (default: False)
+
+**Returns:** List of child locations (flat list for direct children, tree view for recursive)
+
+#### Map Integration
+
+#### `place_location_on_map`
+Places a location on a hex map at specific coordinates.
+
+**Parameters:**
+- `location_id` (str, required): ID of location to place
+- `map_name` (str, required): Name of hex map
+- `x` (int, required): X coordinate on map
+- `y` (int, required): Y coordinate on map
+- `create_poi` (bool, optional): Automatically create a corresponding PointOfInterest (default: True)
+
+**Returns:** Success message with POI creation status
+
+#### `list_locations_on_map`
+Lists all locations that appear on a specific map.
+
+**Parameters:**
+- `map_name` (str, required): Name of hex map
+- `location_type` (str, optional): Filter by location type
+
+**Returns:** List of locations with coordinates
+
+#### `sync_location_and_poi`
+Synchronizes a Location with its corresponding PointOfInterest.
+
+**Parameters:**
+- `location_id` (str, required): ID of location
+- `poi_id` (str, required): ID of POI to sync with
+
+**Returns:** Success message
+
+**Note:** Syncs map placement, coordinates, and bidirectional linking.
+
+#### Migration Tools
+
+#### `upgrade_location`
+Upgrades an existing location to use new hierarchy and map fields.
+
+**Parameters:**
+- `location_id` (str, required): ID of location to upgrade
+- `location_type` (LocationType, optional): Set structured LocationType enum
+- `location_scale` (LocationScale, optional): Set scale level
+- `parent_location_id` (str, optional): Set parent in hierarchy
+- `primary_map` (str, optional): Set primary map reference
+- `hex_x` (int, optional): X coordinate on map
+- `hex_y` (int, optional): Y coordinate on map
+- `infer_scale_from_type` (bool, optional): Automatically set location_scale based on type (default: False)
+
+**Returns:** List of upgraded fields
+
+**Note:** Only updates fields that are currently None/empty. Safe for selective migration.
+
+#### `list_unmigrated_locations`
+Lists locations that haven't been upgraded to new format.
+
+**Parameters:** None
+
+**Returns:** List of unmigrated locations with suggestion to use `upgrade_location`
+
+**Unmigrated Criteria:**
+- No parent (and not root)
+- No children
+- No map placement
+
+### Hex Map Management
+
+Hex maps provide wilderness exploration and travel tracking using hexagonal grids. Each hex can contain terrain, Points of Interest (POIs), and integrate with Locations.
+
+**Current Map Concept:**
+Most hex map tools have an optional `map_name` parameter that defaults to the "current map". The current map is automatically determined based on the current location in the campaign's game state. When the current location (or any parent location in the hierarchy) has a `primary_map` field set, that map becomes the current map. This allows you to omit `map_name` from hex map tools when working with the party's current location, and the system will automatically use the contextually appropriate map.
+
+**Terrain Types (24 total):**
+Grasslands: `grass`, `scrub`, `plains` | Forests: `forest`, `light_forest`, `dense_forest`, `jungle` | Wetlands: `marsh`, `swamp` | Elevation: `hills`, `mountains` | Arid: `desert`, `badlands`, `wasteland` | Cold: `tundra`, `glacier` | Special: `volcanic`, `coastal`, `water` | Populated: `urban`, `farmland`
+
+**POI Types (13 total):**
+Settlements: `city`, `town`, `village`, `inn` | Structures: `castle`, `temple`, `tower`, `shrine` | Exploration: `dungeon`, `ruins`, `cave`, `camp`, `landmark`
+
+#### `create_hex_map`
+Creates a new hex-based wilderness map.
+
+**Parameters:**
+- `name` (str, required): Map name (e.g., "Sword Coast", "Barovia")
+- `description` (str, optional): Map description
+- `hex_size_miles` (int, optional): Miles per hex side (default: 6 miles = ~31 sq mi per hex)
+- `default_terrain` (TerrainType, optional): Default terrain for unspecified hexes (default: "plains")
+
+**Returns:** Success message with map name
+
+#### `get_hex_map`
+Gets information about a specific hex map.
+
+**Parameters:**
+- `name` (str, required): Map name
+
+**Returns:** Formatted map information including hex count, roads, rivers, and terrain summary
+
+#### `list_hex_maps`
+Lists all hex maps in the current campaign.
+
+**Parameters:** None
+
+**Returns:** List of map names with hex counts
+
+#### `add_or_update_hex`
+Adds or updates a hex on a map.
+
+**Parameters:**
+- `x` (int, required): X coordinate
+- `y` (int, required): Y coordinate
+- `terrain` (TerrainType, required): Terrain type
+- `explored` (bool, optional): Whether party has explored this hex (default: False)
+- `elevation` (int, optional): Elevation in meters above sea level
+- `notes` (str, optional): Hex notes
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Success message with hex coordinate
+
+#### `get_hex`
+Gets information about a specific hex.
+
+**Parameters:**
+- `x` (int, required): X coordinate
+- `y` (int, required): Y coordinate
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Formatted hex information including terrain, POIs, discovery status, and notes
+
+#### `add_poi_to_hex`
+Adds a Point of Interest to a hex.
+
+**Parameters:**
+- `x` (int, required): X coordinate of hex
+- `y` (int, required): Y coordinate of hex
+- `name` (str, required): POI name
+- `poi_type` (POIType, required): Type of POI (city, town, village, ruins, dungeon, castle, temple, tower, cave, inn, camp, shrine, landmark)
+- `description` (str, optional): POI description
+- `location_id` (str, optional): Associated Location ID for bidirectional linking
+- `discovered` (bool, optional): Whether party has discovered this POI (default: False)
+- `notes` (str, optional): POI notes
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Success message with POI ID
+
+#### `list_pois_on_map`
+Lists all Points of Interest on a map.
+
+**Parameters:**
+- `poi_type` (POIType, optional): Filter by POI type
+- `discovered_only` (bool, optional): Only show discovered POIs (default: False)
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** List of POIs with coordinates and discovery status
+
+#### `add_road`
+Adds a road to a hex map.
+
+**Parameters:**
+- `path` (list[tuple[int, int]], required): List of (x, y) coordinates the road passes through, in order from start to end
+- `road_type` (str, optional): Road quality - "highway", "road", "path", "trail" (default: "road")
+- `condition` (str, optional): Road condition - "well-maintained", "fair", "poor", "overgrown" (default: "fair")
+- `start_point` (str, optional): Where the road starts in the first hex: "center", "north", "northeast", "southeast", "south", "southwest", or "northwest" (default: "center")
+- `end_point` (str, optional): Where the road ends in the last hex (default: "center")
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Success message with road details
+
+**Example:**
+```python
+# Uses current map if party is at a location with a map
+add_road(
+    path=[(5, 3), (6, 3), (7, 4)],
+    road_type="highway"
+)
+
+# Or specify a specific map
+add_road(
+    path=[(5, 3), (6, 3), (7, 4)],
+    road_type="highway",
+    map_name="Sword Coast"
+)
+```
+
+#### `add_river`
+Adds a river to a hex map.
+
+**Parameters:**
+- `path` (list[tuple[int, int]], required): List of (x, y) coordinates the river flows through, from source to mouth
+- `width` (str, optional): River width category - "stream", "river", "wide river" (default: "river")
+- `navigable` (bool, optional): Whether the river is navigable by boat (default: False)
+- `start_point` (str, optional): Where the river starts in the first hex: "center" (spring/source) or a side (default: "center")
+- `end_point` (str, optional): Where the river ends in the last hex: "center" (lake/ocean) or a side (default: "center")
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Success message with river details
+
+**Example:**
+```python
+# River flowing through multiple hexes on current map
+add_river(
+    path=[(3, 2), (3, 3), (4, 3)],
+    width="river",
+    navigable=True
+)
+```
+
+#### `get_neighboring_hexes`
+Gets all hexes adjacent to a specific hex.
+
+**Parameters:**
+- `x` (int, required): X coordinate of center hex
+- `y` (int, required): Y coordinate of center hex
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** List of neighboring hex coordinates (up to 6 neighbors)
+
+**Note:** Hex maps use offset coordinate system. Neighbors depend on whether row is even or odd.
+
+#### `render_hex_map`
+Renders a hex map in the specified format for display or export.
+
+**Parameters:**
+- `render_mode` (Literal["json", "ascii", "emoji"], optional): Rendering mode (default: "emoji")
+  - `json`: Returns structured JSON data suitable for external renderers
+  - `ascii`: Returns text-based map using terrain code letters (same format as map creation)
+  - `emoji`: Returns visually appealing ASCII art with emojis representing terrain
+- `center_x` (int, optional): X coordinate to center the view (shows all if not provided)
+- `center_y` (int, optional): Y coordinate to center the view (shows all if not provided)
+- `radius` (int, optional): Radius in hexes around center point (only used with center_x/y)
+- `map_name` (str, optional): Name of hex map to render (uses current map if not provided)
+
+**Returns:** Rendered map in the specified format
+
+**JSON Mode:**
+Returns complete structured data including:
+- Map metadata (name, description, hex size, default terrain)
+- Bounds (min/max x/y coordinates)
+- All hexes with coordinates, terrain, discovery status, elevation, POIs
+- All roads with paths
+- All rivers with segments
+
+**ASCII Mode:**
+Returns text-based map using single-letter terrain codes:
+- **Grasslands:** G = grass, R = scrub, P = plains
+- **Forests:** F = forest, L = light_forest, D = dense_forest, J = jungle
+- **Wetlands:** A = marsh, S = swamp
+- **Elevation:** H = hills, M = mountains
+- **Arid:** E = desert, B = badlands, X = wasteland
+- **Cold:** T = tundra, I = glacier
+- **Special:** V = volcanic, C = coastal, W = water
+- **Populated:** U = urban, N = farmland
+- Hexes with POIs marked with `*`
+- Includes terrain legend and POI list
+
+**Emoji Mode (default):**
+Returns rich-text visual display:
+- **Grasslands:** 🟢 grass, 🌿 scrub, 🟢 plains
+- **Forests:** 🌲 forest, 🌳 light_forest, 🌲 dense_forest, 🌴 jungle
+- **Wetlands:** 🌿 marsh, 🌿 swamp
+- **Elevation:** ⛰️ hills, 🏔️ mountains
+- **Arid:** 🏜️ desert, 🪨 badlands, 💀 wasteland
+- **Cold:** ❄️ tundra, 🧊 glacier
+- **Special:** 🌋 volcanic, 🏖️ coastal, 🌊 water
+- **Populated:** 🏙️ urban, 🌾 farmland
+- POIs shown with 📍 or count (2📍) plus type-specific emojis (🏙️ city, 🏛️ temple, 🏰 castle, etc.)
+- Includes terrain legend, POI list with coordinates
+- Shows roads and rivers if present in view
+
+**Example:**
+```python
+# Display current map with emojis (uses party's current location map)
+render_hex_map()
+
+# ASCII text version of current map
+render_hex_map(render_mode="ascii")
+
+# JSON for external renderer
+render_hex_map(render_mode="json")
+
+# View only 5-hex radius around a specific point on current map
+render_hex_map(
+    render_mode="emoji",
+    center_x=12,
+    center_y=8,
+    radius=5
+)
+
+# Or specify a specific map explicitly
+render_hex_map(map_name="Sword Coast", render_mode="emoji")
+```
+
+#### `calculate_distance`
+Calculates the distance in hexes and kilometers between two points on a hex map.
+
+**Parameters:**
+- `from_x` (int, required): Starting X coordinate
+- `from_y` (int, required): Starting Y coordinate
+- `to_x` (int, required): Destination X coordinate
+- `to_y` (int, required): Destination Y coordinate
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Distance in hexes and kilometers
+
+**Example:**
+```python
+# Calculate distance on current map
+calculate_distance(from_x=5, from_y=3, to_x=12, to_y=8)
+# Returns: "Distance from [5,3] to [12,8]: 8 hexes (48.0 km)"
+```
+
+#### `describe_area`
+Describes an area of the map centered on a specific hex, including terrain and POIs.
+
+**Parameters:**
+- `center_x` (int, required): X coordinate of center hex
+- `center_y` (int, required): Y coordinate of center hex
+- `radius` (int, optional): Radius in hexes (default: 1)
+- `map_name` (str, optional): Name of hex map (uses current map if not provided)
+
+**Returns:** Detailed description of the area including terrain, POIs, roads, and rivers
+
+**Example:**
+```python
+# Describe 2-hex radius around a point on current map
+describe_area(center_x=10, center_y=5, radius=2)
+```
 
 ### Quest Management
 

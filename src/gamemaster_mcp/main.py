@@ -27,13 +27,24 @@ from .models import (
     CharacterClass,
     CombatParticipant,
     EventType,
+    Hex,
+    HexCoordinate,
+    HexMap,
+    HexSide,
     Item,
     Location,
+    LocationScale,
+    LocationType,
     Monster,
+    PointOfInterest,
+    POIType,
     Quest,
     Race,
+    River,
+    Road,
     SessionNote,
     Spell,
+    TerrainType,
     Transcript,
     TranscriptAdventure,
     TranscriptCombat,
@@ -1676,7 +1687,7 @@ def list_monsters() -> str:
 
 
 # Location Management Tools
-@tool_with_logging(mcp, tags=["mode:any"])
+@tool_with_logging(mcp, tags=["mode:setup"])
 def create_location(
     name: Annotated[str, Field(description="Location name")],
     location_type: Annotated[
@@ -1687,8 +1698,19 @@ def create_location(
     government: Annotated[str | None, Field(description="Government type")] = None,
     notable_features: Annotated[list[str] | None, Field(description="Notable features")] = None,
     notes: Annotated[str, Field(description="Additional notes")] = "",
+    # NEW: Hierarchy and Map Integration
+    parent_location_id: Annotated[str | None, Field(description="ID of parent location in hierarchy")] = None,
+    location_scale: Annotated[LocationScale, Field(description="Scale/scope of this location")] = LocationScale.LOCAL,
+    primary_map: Annotated[str | None, Field(description="Name of hex map this location appears on")] = None,
+    hex_x: Annotated[int | None, Field(description="X coordinate on hex map")] = None,
+    hex_y: Annotated[int | None, Field(description="Y coordinate on hex map")] = None,
 ) -> str:
-    """Create a new location."""
+    """Create a new location with optional hierarchy and map placement."""
+    # Build hex coordinate if provided
+    hex_coordinate = None
+    if hex_x is not None and hex_y is not None:
+        hex_coordinate = HexCoordinate(x=hex_x, y=hex_y)
+
     location = Location(
         name=name,
         location_type=location_type,
@@ -1697,20 +1719,42 @@ def create_location(
         government=government,
         notable_features=notable_features or [],
         notes=notes,
+        parent_location_id=parent_location_id,
+        location_scale=location_scale,
+        primary_map=primary_map,
+        hex_coordinate=hex_coordinate,
     )
 
     storage.add_location(location)
-    return f"Created location '{location.name}' ({location.location_type})"
+
+    # Update parent's child_locations if parent specified
+    if parent_location_id:
+        try:
+            storage.set_parent_location(location.id, parent_location_id)
+        except ValueError as e:
+            logger.warning(f"Could not set parent: {e}")
+
+    result = f"Created location '{location.name}' ({location.location_type}, scale: {location.location_scale})"
+    if parent_location_id:
+        result += f" as child of location ID {parent_location_id}"
+    if primary_map:
+        result += f" on map '{primary_map}'"
+        if hex_coordinate:
+            result += f" at ({hex_coordinate.x}, {hex_coordinate.y})"
+
+    return result
 
 
 @tool_with_logging(mcp, tags=["mode:any"])
 def get_location(name: Annotated[str, Field(description="Location name")]) -> str:
-    """Get location information."""
+    """Get location information including hierarchy and map placement."""
     location = storage.get_location(name)
     if not location:
         return f"Location '{name}' not found."
 
     loc_info = f"""**{location.name}** ({location.location_type})
+**ID:** {location.id}
+**Scale:** {location.location_scale}
 
 **Description:** {location.description}
 
@@ -1719,9 +1763,36 @@ def get_location(name: Annotated[str, Field(description="Location name")]) -> st
 
 **Notable Features:**
 {chr(10).join(["• " + feature for feature in location.notable_features]) if location.notable_features else "None listed"}
-
-**Notes:** {location.notes or "No additional notes."}
 """
+
+    # Add hierarchy information
+    try:
+        hierarchy = storage.get_location_hierarchy(location.id)
+        if hierarchy["ancestors"]:
+            path = " > ".join([a["name"] for a in hierarchy["ancestors"]] + [location.name])
+            loc_info += f"\n**Hierarchy Path:** {path}"
+
+        if hierarchy["descendants"]:
+            def format_children(children, indent=0):
+                result = []
+                for child in children:
+                    result.append("  " * indent + f"• {child['name']} ({child['scale']})")
+                    if child.get("children"):
+                        result.extend(format_children(child["children"], indent + 1))
+                return result
+
+            children_text = "\n".join(format_children(hierarchy["descendants"]))
+            loc_info += f"\n\n**Child Locations:**\n{children_text}"
+    except Exception as e:
+        logger.warning(f"Could not get hierarchy: {e}")
+
+    # Add map information
+    if location.primary_map:
+        loc_info += f"\n\n**Map:** {location.primary_map}"
+        if location.hex_coordinate:
+            loc_info += f" at ({location.hex_coordinate.x}, {location.hex_coordinate.y})"
+
+    loc_info += f"\n\n**Notes:** {location.notes or 'No additional notes.'}"
 
     return loc_info
 
@@ -1740,6 +1811,498 @@ def list_locations() -> str:
             loc_list.append(f"• {loc.name} ({loc.location_type})")
 
     return "**Locations:**\n" + "\n".join(loc_list)
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def delete_location(
+    location_id: Annotated[str, Field(description="ID of location to delete")],
+    recursive: Annotated[bool, Field(description="If True, delete all child locations. If False, prevent deletion if location has children")] = False,
+) -> str:
+    """Delete a location from the campaign.
+
+    By default (recursive=False), prevents deletion if location has children.
+    Use recursive=True to delete location and ALL descendants (like rm -rf).
+    """
+    campaign = storage.get_current_campaign()
+    if not campaign:
+        return "No active campaign."
+
+    # Find location by ID
+    location = None
+    for loc in campaign.locations.values():
+        if loc.id == location_id:
+            location = loc
+            break
+
+    if not location:
+        return f"Location with ID '{location_id}' not found."
+
+    # Check if location has children
+    if location.child_locations and not recursive:
+        return f"Location '{location.name}' has {len(location.child_locations)} child location(s). Use recursive=True to delete this location and all descendants, or remove child locations first."
+
+    # Recursive deletion
+    if recursive and location.child_locations:
+        deleted_count = 0
+        for child_id in list(location.child_locations):  # Copy list to avoid modification during iteration
+            try:
+                delete_result = delete_location(child_id, recursive=True)
+                if "Deleted" in delete_result:
+                    deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Error deleting child {child_id}: {e}")
+
+        logger.info(f"Recursively deleted {deleted_count} child locations of '{location.name}'")
+
+    # Remove from parent's child_locations
+    if location.parent_location_id:
+        for loc in campaign.locations.values():
+            if loc.id == location.parent_location_id and location.id in loc.child_locations:
+                loc.child_locations.remove(location.id)
+                break
+
+    # Remove location
+    del campaign.locations[location.name]
+    campaign.updated_at = storage._save_campaign()
+
+    return f"Deleted location '{location.name}' (ID: {location_id})" + (f" and {deleted_count} descendant(s)" if recursive and deleted_count > 0 else "")
+
+
+# Root Location Management Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def get_root_location() -> str:
+    """Get information about the campaign's root location.
+
+    Returns summary of root location including its direct children.
+    """
+    root = storage.get_root_location()
+    if not root:
+        return "No root location set for this campaign. Use create_location to create one, then set_root_location to designate it as the root."
+
+    root_info = f"""**Root Location: {root.name}**
+**ID:** {root.id}
+**Type:** {root.location_type}
+**Scale:** {root.location_scale}
+**Description:** {root.description}
+"""
+
+    # List direct children
+    top_level = storage.get_top_level_locations()
+    if top_level:
+        children_list = [f"• {loc.name} ({loc.location_scale})" for loc in top_level]
+        root_info += f"\n**Top-level Locations ({len(top_level)}):**\n" + "\n".join(children_list)
+    else:
+        root_info += "\n**Top-level Locations:** None"
+
+    return root_info
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def set_root_location(location_id: Annotated[str, Field(description="ID of location to become root")]) -> str:
+    """Set an existing location as the campaign root.
+
+    The location must not have a parent. All orphaned locations will
+    become children of the new root.
+    """
+    try:
+        storage.set_root_location(location_id)
+
+        root = storage.get_root_location()
+        orphans = storage.get_orphaned_locations()
+
+        result = f"Set '{root.name}' as campaign root location."
+        if orphans:
+            result += f"\n{len(orphans)} orphaned location(s) are now implicitly children of the root."
+
+        return result
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def get_top_level_locations() -> str:
+    """List all top-level locations (direct children of root, or orphans if no root)."""
+    top_level = storage.get_top_level_locations()
+
+    if not top_level:
+        return "No top-level locations found."
+
+    root = storage.get_root_location()
+    header = f"**Top-level Locations ({len(top_level)})"
+    if root:
+        header += f" - children of '{root.name}'"
+    header += ":**\n"
+
+    loc_list = [f"• {loc.name} (ID: {loc.id}, scale: {loc.location_scale})" for loc in top_level]
+
+    return header + "\n".join(loc_list)
+
+
+# Location Hierarchy Management Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def set_location_parent(
+    child_location_id: Annotated[str, Field(description="ID of child location")],
+    parent_location_id: Annotated[str | None, Field(description="ID of parent location, or None to make child a top-level location")] = None,
+) -> str:
+    """Set or clear the parent location for a location.
+
+    Setting parent to None makes the location a child of the campaign root (if root exists).
+    """
+    try:
+        storage.set_parent_location(child_location_id, parent_location_id)
+
+        # Get location names for result message
+        campaign = storage.get_current_campaign()
+        if not campaign:
+            return "No active campaign."
+
+        child = None
+        parent = None
+        for loc in campaign.locations.values():
+            if loc.id == child_location_id:
+                child = loc
+            if parent_location_id and loc.id == parent_location_id:
+                parent = loc
+
+        if parent:
+            return f"Set '{child.name}' as child of '{parent.name}'"
+        else:
+            return f"Set '{child.name}' as top-level location"
+
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def get_location_hierarchy(
+    location_id: Annotated[str, Field(description="ID of location to get hierarchy for")],
+    include_children: Annotated[bool, Field(description="Include child locations")] = True,
+    include_ancestors: Annotated[bool, Field(description="Include ancestor locations")] = True,
+) -> str:
+    """Get the hierarchical context for a location."""
+    try:
+        hierarchy = storage.get_location_hierarchy(location_id)
+
+        # Find location name
+        campaign = storage.get_current_campaign()
+        if not campaign:
+            return "No active campaign."
+
+        location = None
+        for loc in campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        if not location:
+            return f"Location with ID '{location_id}' not found."
+
+        result = f"**Hierarchy for '{location.name}':**\n\n"
+
+        # Ancestors
+        if include_ancestors and hierarchy["ancestors"]:
+            path = " > ".join([a["name"] for a in hierarchy["ancestors"]] + [location.name])
+            result += f"**Path from Root:** {path}\n"
+
+        # Current location
+        result += f"\n**Current Location:** {location.name} (scale: {location.location_scale})\n"
+
+        # Descendants
+        if include_children and hierarchy["descendants"]:
+            def format_tree(children, indent=0):
+                lines = []
+                for child in children:
+                    lines.append("  " * indent + f"• {child['name']} ({child['scale']})")
+                    if child.get("children"):
+                        lines.extend(format_tree(child["children"], indent + 1))
+                return lines
+
+            result += "\n**Child Locations:**\n" + "\n".join(format_tree(hierarchy["descendants"]))
+        elif include_children:
+            result += "\n**Child Locations:** None"
+
+        return result
+
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def list_child_locations(
+    parent_location_id: Annotated[str, Field(description="ID of parent location")],
+    recursive: Annotated[bool, Field(description="If True, list all descendants recursively")] = False,
+) -> str:
+    """List all child locations within a parent location."""
+    campaign = storage.get_current_campaign()
+    if not campaign:
+        return "No active campaign."
+
+    # Find parent location
+    parent = None
+    for loc in campaign.locations.values():
+        if loc.id == parent_location_id:
+            parent = loc
+            break
+
+    if not parent:
+        return f"Location with ID '{parent_location_id}' not found."
+
+    if not parent.child_locations:
+        return f"'{parent.name}' has no child locations."
+
+    if recursive:
+        # Use hierarchy to get all descendants
+        try:
+            hierarchy = storage.get_location_hierarchy(parent_location_id)
+
+            def format_tree(children, indent=0):
+                lines = []
+                for child in children:
+                    lines.append("  " * indent + f"• {child['name']} (ID: {child['id']}, scale: {child['scale']})")
+                    if child.get("children"):
+                        lines.extend(format_tree(child["children"], indent + 1))
+                return lines
+
+            if hierarchy["descendants"]:
+                return f"**All descendants of '{parent.name}':**\n" + "\n".join(format_tree(hierarchy["descendants"]))
+            else:
+                return f"'{parent.name}' has no descendants."
+
+        except ValueError as e:
+            return f"Error: {e}"
+    else:
+        # Just list direct children
+        children = []
+        for child_id in parent.child_locations:
+            for loc in campaign.locations.values():
+                if loc.id == child_id:
+                    children.append(f"• {loc.name} (ID: {loc.id}, scale: {loc.location_scale})")
+                    break
+
+        return f"**Direct children of '{parent.name}':**\n" + "\n".join(children)
+
+
+# Map Integration Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def place_location_on_map(
+    location_id: Annotated[str, Field(description="ID of location to place")],
+    map_name: Annotated[str, Field(description="Name of hex map")],
+    x: Annotated[int, Field(description="X coordinate on map")],
+    y: Annotated[int, Field(description="Y coordinate on map")],
+    create_poi: Annotated[bool, Field(description="Automatically create a corresponding PointOfInterest")] = True,
+) -> str:
+    """Place a location on a hex map at specific coordinates.
+
+    If create_poi is True, automatically creates a corresponding PointOfInterest.
+    """
+    try:
+        coordinate = HexCoordinate(x=x, y=y)
+        storage.update_location_coordinate(location_id, map_name, coordinate)
+
+        campaign = storage.get_current_campaign()
+        if not campaign:
+            return "No active campaign."
+
+        location = None
+        for loc in campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        result = f"Placed '{location.name}' on map '{map_name}' at ({x}, {y})"
+
+        if create_poi:
+            # Create POI if it doesn't exist
+            hex_map = storage.get_hex_map(map_name)
+            if hex_map:
+                hex_obj = hex_map.get_hex(coordinate)
+                if not hex_obj:
+                    # Create new hex
+                    from .models import Hex
+                    hex_obj = Hex(coordinate=coordinate, terrain=hex_map.default_terrain)
+                    hex_map.set_hex(hex_obj)
+
+                # Check if POI already exists for this location
+                poi_exists = any(poi.location_id == location_id for poi in hex_obj.pois)
+
+                if not poi_exists:
+                    # Create new POI
+                    poi = PointOfInterest(
+                        name=location.name,
+                        poi_type=POIType.TOWN,  # Default, can be customized
+                        description=location.description,
+                        location_id=location_id,
+                        discovered=False
+                    )
+                    hex_obj.pois.append(poi)
+                    storage._save_campaign()
+                    result += f" and created POI '{poi.name}'"
+
+        return result
+
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def list_locations_on_map(
+    map_name: Annotated[str, Field(description="Name of hex map")],
+    location_type: Annotated[str | None, Field(description="Filter by location type")] = None,
+) -> str:
+    """List all locations that appear on a specific map."""
+    locations = storage.get_locations_on_map(map_name)
+
+    if not locations:
+        return f"No locations found on map '{map_name}'."
+
+    if location_type:
+        locations = [loc for loc in locations if loc.location_type == location_type]
+        if not locations:
+            return f"No locations of type '{location_type}' found on map '{map_name}'."
+
+    loc_list = []
+    for loc in locations:
+        coord_str = f"({loc.hex_coordinate.x}, {loc.hex_coordinate.y})" if loc.hex_coordinate else "no coords"
+        loc_list.append(f"• {loc.name} ({loc.location_type}) at {coord_str}")
+
+    header = f"**Locations on '{map_name}' ({len(locations)}):**\n"
+    return header + "\n".join(loc_list)
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def sync_location_and_poi(
+    location_id: Annotated[str, Field(description="ID of location")],
+    poi_id: Annotated[str, Field(description="ID of POI to sync with")],
+) -> str:
+    """Synchronize a Location with its corresponding PointOfInterest."""
+    try:
+        storage.sync_location_with_poi(location_id, poi_id)
+
+        campaign = storage.get_current_campaign()
+        if not campaign:
+            return "No active campaign."
+
+        location = None
+        for loc in campaign.locations.values():
+            if loc.id == location_id:
+                location = loc
+                break
+
+        return f"Synced location '{location.name}' with POI (ID: {poi_id})"
+
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+# Migration Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def upgrade_location(
+    location_id: Annotated[str, Field(description="ID of location to upgrade")],
+    location_type: Annotated[LocationType | None, Field(description="Set structured LocationType enum")] = None,
+    location_scale: Annotated[LocationScale | None, Field(description="Set scale level")] = None,
+    parent_location_id: Annotated[str | None, Field(description="Set parent in hierarchy")] = None,
+    primary_map: Annotated[str | None, Field(description="Set primary map reference")] = None,
+    hex_x: Annotated[int | None, Field(description="X coordinate on map")] = None,
+    hex_y: Annotated[int | None, Field(description="Y coordinate on map")] = None,
+    infer_scale_from_type: Annotated[bool, Field(description="Automatically set location_scale based on type")] = False,
+) -> str:
+    """Upgrade an existing location to use new hierarchy and map fields.
+
+    This tool allows selective migration of locations from old format to new format.
+    Only updates fields that are currently None/empty.
+    """
+    campaign = storage.get_current_campaign()
+    if not campaign:
+        return "No active campaign."
+
+    # Find location
+    location = None
+    for loc in campaign.locations.values():
+        if loc.id == location_id:
+            location = loc
+            break
+
+    if not location:
+        return f"Location with ID '{location_id}' not found."
+
+    changes = []
+
+    # Update location_type if provided (note: currently location_type is still a string)
+    if location_type:
+        location.location_type = location_type.value
+        changes.append(f"type → {location_type.value}")
+
+    # Infer scale from type if requested
+    if infer_scale_from_type and location_type and not location_scale:
+        type_to_scale = {
+            LocationType.METROPOLIS: LocationScale.SETTLEMENT,
+            LocationType.CITY: LocationScale.SETTLEMENT,
+            LocationType.TOWN: LocationScale.SETTLEMENT,
+            LocationType.VILLAGE: LocationScale.SETTLEMENT,
+            LocationType.HAMLET: LocationScale.SETTLEMENT,
+            LocationType.TAVERN: LocationScale.BUILDING,
+            LocationType.INN: LocationScale.BUILDING,
+            LocationType.SHOP: LocationScale.BUILDING,
+            LocationType.MANOR: LocationScale.BUILDING,
+            LocationType.HOUSE: LocationScale.BUILDING,
+            LocationType.DUNGEON: LocationScale.BUILDING,
+            LocationType.CAVE: LocationScale.AREA,
+            LocationType.FOREST: LocationScale.AREA,
+            LocationType.MOUNTAIN: LocationScale.AREA,
+            LocationType.DESERT: LocationScale.AREA,
+            LocationType.KINGDOM: LocationScale.KINGDOM,
+            LocationType.PROVINCE: LocationScale.PROVINCE,
+        }
+        inferred_scale = type_to_scale.get(location_type)
+        if inferred_scale:
+            location_scale = inferred_scale
+
+    # Update scale
+    if location_scale and location.location_scale == LocationScale.LOCAL:
+        location.location_scale = location_scale
+        changes.append(f"scale → {location_scale}")
+
+    # Update parent
+    if parent_location_id and not location.parent_location_id:
+        try:
+            storage.set_parent_location(location_id, parent_location_id)
+            changes.append("set parent")
+        except ValueError as e:
+            return f"Error setting parent: {e}"
+
+    # Update map placement
+    if primary_map and not location.primary_map:
+        location.primary_map = primary_map
+        changes.append(f"map → {primary_map}")
+
+    if hex_x is not None and hex_y is not None and not location.hex_coordinate:
+        location.hex_coordinate = HexCoordinate(x=hex_x, y=hex_y)
+        changes.append(f"coords → ({hex_x}, {hex_y})")
+
+    if changes:
+        campaign.updated_at = storage._save_campaign()
+        return f"Upgraded '{location.name}': " + ", ".join(changes)
+    else:
+        return f"'{location.name}' already has all specified fields set. No changes made."
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def list_unmigrated_locations() -> str:
+    """List locations that haven't been upgraded to new format.
+
+    A location is considered unmigrated if it has:
+    - No parent (and it's not the root location)
+    - No children
+    - No map placement
+    """
+    unmigrated = storage.get_unmigrated_locations()
+
+    if not unmigrated:
+        return "All locations have been migrated to the new format!"
+
+    loc_list = [f"• {loc.name} (ID: {loc.id}, type: {loc.location_type})" for loc in unmigrated]
+
+    return f"**Unmigrated Locations ({len(unmigrated)}):**\n" + "\n".join(loc_list) + "\n\nUse the `upgrade_location` tool to migrate these locations."
 
 
 # Quest Management Tools
@@ -2398,6 +2961,1206 @@ def record_interaction_with_tools(
     )
 
     return f"Recorded interaction with {len(responses)} response(s) to transcript"
+
+
+# ========================================
+# Hex Mapping Tools
+# ========================================
+
+# Helper function for resolving map name
+def resolve_map_name(map_name: str | None) -> str:
+    """Resolve map name to current map if None, otherwise return provided name.
+
+    Raises ValueError if no map name provided and no current map available.
+    """
+    if map_name is None:
+        current_map = storage.get_current_map_name()
+        if not current_map:
+            raise ValueError(
+                "No map name provided and no current map available. "
+                "Either specify a map name or set the current location to a location with a map."
+            )
+        return current_map
+    return map_name
+
+
+# Map Management Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def create_hex_map(
+    name: Annotated[str, Field(description="Name of the hex map")],
+    description: Annotated[str, Field(description="Description of the region this map represents")],
+    hex_diameter_km: Annotated[float, Field(description="Diameter of each hex in km")] = 10.0,
+    default_terrain: Annotated[TerrainType, Field(description="Default terrain type")] = TerrainType.GRASS,
+) -> str:
+    """Create a new hex map for outdoor wilderness areas."""
+    hex_map = HexMap(
+        name=name,
+        description=description,
+        hex_diameter_km=hex_diameter_km,
+        default_terrain=default_terrain
+    )
+
+    storage.add_hex_map(hex_map)
+    return f"Created hex map '{name}' with {hex_diameter_km}km hexes. Default terrain: {default_terrain.value}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def list_hex_maps() -> str:
+    """List all hex maps in the current campaign."""
+    map_names = storage.list_hex_maps()
+    if not map_names:
+        return "No hex maps found in the current campaign."
+
+    result = "Hex maps in campaign:\n"
+    for map_name in map_names:
+        hex_map = storage.get_hex_map(map_name)
+        if hex_map:
+            hex_count = len(hex_map.hexes)
+            result += f"- {map_name}: {hex_count} hexes, {hex_map.hex_diameter_km}km per hex\n"
+
+    return result.rstrip()
+
+
+@tool_with_logging(mcp, tags=["mode:setup"])
+def delete_hex_map(
+    map_name: Annotated[str, Field(description="Name of the map to delete")],
+) -> str:
+    """Delete a hex map from the campaign."""
+    storage.delete_hex_map(map_name)
+    return f"Deleted hex map '{map_name}'"
+
+
+# Basic Hex Manipulation Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_or_update_hex(
+    x: Annotated[int, Field(description="X coordinate (column, 0=leftmost)")],
+    y: Annotated[int, Field(description="Y coordinate (row, 0=topmost)")],
+    terrain: Annotated[TerrainType, Field(description="Terrain type for this hex")],
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+    explored: Annotated[bool, Field(description="Whether party has explored this hex")] = False,
+    elevation: Annotated[int | None, Field(description="Elevation in meters")] = None,
+    notes: Annotated[str | None, Field(description="Notes about this hex")] = None,
+) -> str:
+    """Add or update a hex on the map. Uses current map if map_name not provided."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    coord = HexCoordinate(x=x, y=y)
+    hex_obj = Hex(
+        coordinate=coord,
+        terrain=terrain,
+        explored=explored,
+        elevation=elevation,
+        notes=notes or ""
+    )
+
+    hex_map.set_hex(hex_obj)
+    storage.add_hex_map(hex_map)  # Save changes
+
+    return f"Set hex [{x},{y}] to {terrain.value} terrain" + (f" (elevation: {elevation}m)" if elevation else "")
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def get_hex_info(
+    x: Annotated[int, Field(description="X coordinate (column)")],
+    y: Annotated[int, Field(description="Y coordinate (row)")],
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Get detailed information about a specific hex. Uses current map if map_name not provided."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    coord = HexCoordinate(x=x, y=y)
+    hex_obj = hex_map.get_hex(coord)
+
+    if not hex_obj:
+        return f"No hex found at [{x},{y}] on map '{map_name}'"
+
+    result = f"Hex [{x},{y}] on map '{map_name}':\n"
+    result += f"- Terrain: {hex_obj.terrain.value}\n"
+    result += f"- Explored: {'Yes' if hex_obj.explored else 'No'}\n"
+
+    if hex_obj.elevation is not None:
+        result += f"- Elevation: {hex_obj.elevation}m\n"
+
+    if hex_obj.roads:
+        result += f"- Roads: {len(hex_obj.roads)} road(s)\n"
+    if hex_obj.rivers:
+        result += f"- Rivers: {len(hex_obj.rivers)} river(s)\n"
+    if hex_obj.pois:
+        result += f"- Points of Interest: {len(hex_obj.pois)}\n"
+        for poi in hex_obj.pois:
+            result += f"  - {poi.name} ({poi.poi_type.value})" + (" [discovered]" if poi.discovered else " [undiscovered]") + "\n"
+
+    if hex_obj.notes:
+        result += f"- Notes: {hex_obj.notes}\n"
+
+    return result.rstrip()
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def mark_hex_explored(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    x: Annotated[int, Field(description="X coordinate (column)")],
+    y: Annotated[int, Field(description="Y coordinate (row)")],
+) -> str:
+    """Mark a hex as explored by the party."""
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    coord = HexCoordinate(x=x, y=y)
+    hex_obj = hex_map.get_hex(coord)
+
+    if not hex_obj:
+        return f"No hex found at [{x},{y}] on map '{map_name}'"
+
+    hex_obj.explored = True
+    hex_map.set_hex(hex_obj)
+    storage.add_hex_map(hex_map)
+
+    return f"Marked hex [{x},{y}] as explored"
+
+
+# Bulk Terrain Tools
+@tool_with_logging(mcp, tags=["mode:setup"])
+def fill_rectangular_region(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    min_x: Annotated[int, Field(description="Minimum X coordinate (inclusive)")],
+    min_y: Annotated[int, Field(description="Minimum Y coordinate (inclusive)")],
+    max_x: Annotated[int, Field(description="Maximum X coordinate (inclusive)")],
+    max_y: Annotated[int, Field(description="Maximum Y coordinate (inclusive)")],
+    terrain: Annotated[TerrainType, Field(description="Terrain type to fill")],
+) -> str:
+    """Fill a rectangular region with a specific terrain type.
+
+    Useful for quickly initializing a map with a base terrain or making large-scale changes.
+    Creates hexes at all coordinates within the specified bounds.
+    """
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    count = 0
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            coord = HexCoordinate(x=x, y=y)
+            hex_obj = Hex(coordinate=coord, terrain=terrain)
+            hex_map.set_hex(hex_obj)
+            count += 1
+
+    storage.add_hex_map(hex_map)
+    return f"Filled region [{min_x},{min_y}] to [{max_x},{max_y}] with {terrain.value} ({count} hexes)"
+
+
+@tool_with_logging(mcp, tags=["mode:setup"])
+def generate_terrain_region(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    center_x: Annotated[int, Field(description="Center X coordinate (column)")],
+    center_y: Annotated[int, Field(description="Center Y coordinate (row)")],
+    radius: Annotated[int, Field(description="Radius of the region in hexes")],
+    terrain: Annotated[TerrainType, Field(description="Terrain type to fill")],
+) -> str:
+    """Fill a circular region with a specific terrain type.
+
+    Useful for creating natural features like forests, hills, or lakes. Uses hex distance
+    calculation to create a circular pattern.
+    """
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    center = HexCoordinate(x=center_x, y=center_y)
+    count = 0
+
+    # Search in a rectangular area and filter by distance
+    for x in range(center_x - radius, center_x + radius + 1):
+        for y in range(center_y - radius, center_y + radius + 1):
+            coord = HexCoordinate(x=x, y=y)
+            if center.distance_to(coord) <= radius:
+                hex_obj = Hex(coordinate=coord, terrain=terrain)
+                hex_map.set_hex(hex_obj)
+                count += 1
+
+    storage.add_hex_map(hex_map)
+    return f"Generated {terrain.value} region centered at [{center_x},{center_y}] with radius {radius} ({count} hexes)"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def import_terrain_from_ascii(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    ascii_map: Annotated[str, Field(description="ASCII representation of the map. Each character represents one hex. Odd rows (1,3,5...) should start with a space to show hex offset.")],
+    legend: Annotated[dict[str, str], Field(description="Mapping of ASCII characters to terrain type names. Example: {'G': 'grass', 'F': 'light_forest', 'M': 'mountains'}")],
+    start_x: Annotated[int, Field(description="X coordinate for the top-left hex")] = 0,
+    start_y: Annotated[int, Field(description="Y coordinate for the top-left hex")] = 0,
+) -> str:
+    """Import terrain from an ASCII map representation.
+
+    This is the most efficient way to create large maps. Each character in the ASCII map
+    represents one hex's terrain type. Rows are separated by newlines. Odd-numbered rows
+    should be indented with a space to represent the hex offset.
+
+    Example:
+        ascii_map = '''
+        G G F F M
+         G F F H M
+        G F F H H
+         W G F H M
+        '''
+        legend = {
+            'G': 'grass',
+            'F': 'light_forest',
+            'M': 'mountains',
+            'H': 'hills',
+            'W': 'water'
+        }
+    """
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    lines = ascii_map.strip().split('\n')
+    hex_count = 0
+
+    for row_idx, line in enumerate(lines):
+        y = start_y + row_idx
+
+        # Check if this is an odd row (starts with space)
+        is_offset_row = line.startswith(' ')
+        if is_offset_row:
+            line = line[1:]  # Remove leading space
+
+        # Split by spaces to get individual hex characters
+        chars = line.split()
+
+        for col_idx, char in enumerate(chars):
+            if char in legend:
+                # Calculate x coordinate with standard consecutive numbering
+                # For odd-q offset coordinates (pointy-top hexes):
+                # - Even rows (y=0,2,4...): hexes at x = 0,1,2,3...
+                # - Odd rows (y=1,3,5...): hexes at x = 0,1,2,3... (visually offset)
+                x = start_x + col_idx
+                terrain_name = legend[char]
+
+                try:
+                    terrain = TerrainType(terrain_name)
+                    coord = HexCoordinate(x=x, y=y)
+                    hex_obj = Hex(coordinate=coord, terrain=terrain)
+                    hex_map.set_hex(hex_obj)
+                    hex_count += 1
+                except ValueError:
+                    # Invalid terrain type, skip
+                    pass
+
+    storage.add_hex_map(hex_map)
+    return f"Imported {hex_count} hexes from ASCII map into '{map_name}'"
+
+
+# Point of Interest Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_poi_to_hex(
+    x: Annotated[int, Field(description="X coordinate (column)")],
+    y: Annotated[int, Field(description="Y coordinate (row)")],
+    name: Annotated[str, Field(description="Name of the point of interest")],
+    poi_type: Annotated[POIType, Field(description="Type of POI")],
+    description: Annotated[str, Field(description="Description of the POI")],
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+    location_id: Annotated[str | None, Field(description="ID of associated Location object")] = None,
+    discovered: Annotated[bool, Field(description="Has the party discovered this?")] = False,
+    position: Annotated[str, Field(description="Position within hex: 'center', 'north', 'northeast', 'southeast', 'south', 'southwest', 'northwest'")] = "center",
+) -> str:
+    """Add a point of interest to a hex. Uses current map if map_name not provided.
+
+    The position indicates where in the hex the POI is located. Use 'center' for most
+    POIs (towns, dungeons at hex center), or a specific side for POIs at hex edges
+    (e.g., a tower on the northern edge).
+    """
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    coord = HexCoordinate(x=x, y=y)
+    hex_obj = hex_map.get_hex(coord)
+
+    if not hex_obj:
+        return f"No hex found at [{x},{y}]. Create the hex first using add_or_update_hex."
+
+    # Create POI
+    poi = PointOfInterest(
+        name=name,
+        poi_type=poi_type,
+        description=description,
+        location_id=location_id,
+        discovered=discovered,
+        position=HexSide(position)
+    )
+
+    hex_obj.pois.append(poi)
+    hex_map.set_hex(hex_obj)
+    storage.add_hex_map(hex_map)
+
+    return f"Added {poi_type.value} '{name}' to hex [{x},{y}] at position {position}"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def remove_poi_from_hex(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    poi_id: Annotated[str, Field(description="ID of the POI to remove")],
+) -> str:
+    """Remove a point of interest from the map."""
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    # Search all hexes for the POI
+    for hex_obj in hex_map.hexes.values():
+        for poi in hex_obj.pois:
+            if poi.id == poi_id:
+                hex_obj.pois.remove(poi)
+                hex_map.set_hex(hex_obj)
+                storage.add_hex_map(hex_map)
+                return f"Removed POI '{poi.name}' from hex [{hex_obj.coordinate.x},{hex_obj.coordinate.y}]"
+
+    return f"POI with ID '{poi_id}' not found on map '{map_name}'"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def mark_poi_discovered(
+    map_name: Annotated[str, Field(description="Name of the hex map")],
+    poi_id: Annotated[str, Field(description="ID of the POI")],
+) -> str:
+    """Mark a POI as discovered by the party."""
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    # Search all hexes for the POI
+    for hex_obj in hex_map.hexes.values():
+        for poi in hex_obj.pois:
+            if poi.id == poi_id:
+                poi.discovered = True
+                hex_map.set_hex(hex_obj)
+                storage.add_hex_map(hex_map)
+                return f"Marked POI '{poi.name}' as discovered"
+
+    return f"POI with ID '{poi_id}' not found on map '{map_name}'"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def list_pois_on_map(
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+    discovered_only: Annotated[bool, Field(description="Only show discovered POIs")] = False,
+    poi_type: Annotated[POIType | None, Field(description="Filter by POI type")] = None,
+) -> str:
+    """List all points of interest on a map."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    pois = []
+    for hex_obj in hex_map.hexes.values():
+        for poi in hex_obj.pois:
+            # Apply filters
+            if discovered_only and not poi.discovered:
+                continue
+            if poi_type and poi.poi_type != poi_type:
+                continue
+
+            pois.append((hex_obj.coordinate, poi))
+
+    if not pois:
+        return "No POIs found matching the criteria."
+
+    result = f"Points of Interest on '{map_name}':\n"
+    for coord, poi in pois:
+        status = "[discovered]" if poi.discovered else "[undiscovered]"
+        result += f"- {poi.name} ({poi.poi_type.value}) at [{coord.x},{coord.y}] {status}\n"
+        result += f"  {poi.description}\n"
+
+    return result.rstrip()
+
+
+# Navigation and Exploration Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def get_neighboring_hexes(
+    x: Annotated[int, Field(description="X coordinate of center hex (column)")],
+    y: Annotated[int, Field(description="Y coordinate of center hex (row)")],
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Get information about all hexes adjacent to the specified hex."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    coord = HexCoordinate(x=x, y=y)
+    neighbors = hex_map.get_neighbors(coord)
+
+    result = f"Neighbors of hex [{x},{y}]:\n"
+    for direction, neighbor_hex in neighbors.items():
+        if neighbor_hex:
+            result += f"- {direction.value}: {neighbor_hex.terrain.value}"
+            if neighbor_hex.pois:
+                result += f" (POIs: {', '.join([poi.name for poi in neighbor_hex.pois])})"
+            result += "\n"
+        else:
+            result += f"- {direction.value}: (no hex)\n"
+
+    return result.rstrip()
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def render_hex_map(
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+    render_mode: Annotated[
+        Literal["json", "ascii", "emoji"],
+        Field(description="Rendering mode: 'json' for structured data, 'ascii' for text map, 'emoji' for visual display")
+    ] = "emoji",
+    center_x: Annotated[int | None, Field(description="X coordinate to center the view (optional, shows all if not provided)")] = None,
+    center_y: Annotated[int | None, Field(description="Y coordinate to center the view (optional, shows all if not provided)")] = None,
+    radius: Annotated[int | None, Field(description="Radius in hexes around center point (only used with center_x/y)", ge=1)] = None,
+) -> str:
+    """Renders a hex map in the specified format for display or export.
+
+    Supports three render modes:
+    - json: Returns structured JSON data suitable for external renderers
+    - ascii: Returns text-based map using terrain code letters (same format as map creation)
+    - emoji: Returns visually appealing ASCII art with emojis representing terrain
+    """
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    # Define terrain character mappings for ASCII mode
+    terrain_codes = {
+        TerrainType.PLAINS: 'P',
+        TerrainType.FOREST: 'F',
+        TerrainType.LIGHT_FOREST: 'F',
+        TerrainType.DENSE_FOREST: 'F',
+        TerrainType.HILLS: 'H',
+        TerrainType.MOUNTAINS: 'M',
+        TerrainType.SWAMP: 'S',
+        TerrainType.DESERT: 'D',
+        TerrainType.TUNDRA: 'T',
+        TerrainType.WATER: 'W',
+        TerrainType.URBAN: 'U',
+        TerrainType.COASTAL: 'C',
+        TerrainType.JUNGLE: 'J',
+        TerrainType.VOLCANIC: 'V',
+        TerrainType.WASTELAND: 'X',
+        TerrainType.FARMLAND: 'A',
+    }
+
+    # Define terrain emoji mappings for emoji mode
+    terrain_emojis = {
+        TerrainType.PLAINS: '🟢',
+        TerrainType.FOREST: '🌲',
+        TerrainType.LIGHT_FOREST: '🌲',
+        TerrainType.DENSE_FOREST: '🌲',
+        TerrainType.HILLS: '⛰️',
+        TerrainType.MOUNTAINS: '🏔️',
+        TerrainType.SWAMP: '🌿',
+        TerrainType.DESERT: '🏜️',
+        TerrainType.TUNDRA: '❄️',
+        TerrainType.WATER: '🌊',
+        TerrainType.URBAN: '🏙️',
+        TerrainType.COASTAL: '🏖️',
+        TerrainType.JUNGLE: '🌴',
+        TerrainType.VOLCANIC: '🌋',
+        TerrainType.WASTELAND: '💀',
+        TerrainType.FARMLAND: '🌾',
+    }
+
+    # Determine which hexes to render
+    if center_x is not None and center_y is not None and radius is not None:
+        # Render only hexes within radius of center
+        center_coord = HexCoordinate(x=center_x, y=center_y)
+        hexes_to_render = {}
+        for coord_str, hex_obj in hex_map.hexes.items():
+            distance = hex_obj.coordinate.distance_to(center_coord)
+            if distance <= radius:
+                hexes_to_render[coord_str] = hex_obj
+    else:
+        # Render all hexes
+        hexes_to_render = hex_map.hexes
+
+    if not hexes_to_render:
+        return f"No hexes to render in map '{map_name}'"
+
+    # Find bounds and create coordinate normalization mapping
+    all_coords = [hex_obj.coordinate for hex_obj in hexes_to_render.values()]
+    min_x = min(coord.x for coord in all_coords)
+    max_x = max(coord.x for coord in all_coords)
+    min_y = min(coord.y for coord in all_coords)
+    max_y = max(coord.y for coord in all_coords)
+
+    # Create mappings for coordinate normalization (handles non-consecutive coordinates)
+    # Collect all unique x and y values, sort them, and map to consecutive integers
+    unique_x = sorted(set(coord.x for coord in all_coords))
+    unique_y = sorted(set(coord.y for coord in all_coords))
+    x_map = {actual: normalized for normalized, actual in enumerate(unique_x)}
+    y_map = {actual: normalized for normalized, actual in enumerate(unique_y)}
+
+    if render_mode == "json":
+        # JSON mode: return structured data with normalized coordinates
+        import json
+        json_data = {
+            "map_name": hex_map.name,
+            "description": hex_map.description,
+            "hex_diameter_km": hex_map.hex_diameter_km,
+            "default_terrain": hex_map.default_terrain.value,
+            "bounds": {
+                "min_x": 0,
+                "max_x": len(unique_x) - 1,
+                "min_y": 0,
+                "max_y": len(unique_y) - 1
+            },
+            "hexes": [
+                {
+                    "x": x_map[hex_obj.coordinate.x],  # Normalized x (top-level)
+                    "y": y_map[hex_obj.coordinate.y],  # Normalized y (top-level)
+                    "coordinate": {  # Also provide nested coordinate object
+                        "x": x_map[hex_obj.coordinate.x],
+                        "y": y_map[hex_obj.coordinate.y]
+                    },
+                    "terrain": hex_obj.terrain.value,
+                    "explored": hex_obj.explored,
+                    "elevation": hex_obj.elevation,
+                    "notes": hex_obj.notes,
+                    "pois": [
+                        {
+                            "id": poi.id,
+                            "name": poi.name,
+                            "type": poi.poi_type.value,
+                            "description": poi.description,
+                            "discovered": poi.discovered,
+                            "location_id": poi.location_id
+                        }
+                        for poi in hex_obj.pois
+                    ],
+                    "roads": [],
+                    "rivers": []
+                }
+                for hex_obj in hexes_to_render.values()
+            ]
+        }
+        return json.dumps(json_data, indent=2)
+
+    elif render_mode == "ascii":
+        # ASCII mode: text-based using terrain codes
+        result = f"**Hex Map: {hex_map.name}**\n"
+        if hex_map.description:
+            result += f"{hex_map.description}\n"
+        result += f"Scale: {hex_map.hex_diameter_km} km per hex\n\n"
+
+        # Build legend
+        result += "**Terrain Legend:**\n"
+        terrain_set = set(hex_obj.terrain for hex_obj in hexes_to_render.values())
+        for terrain in sorted(terrain_set, key=lambda t: t.value):
+            code = terrain_codes.get(terrain, '?')
+            result += f"  {code} = {terrain.value}\n"
+        result += "\n"
+
+        # Build ASCII map
+        for y in range(min_y, max_y + 1):
+            line = ""
+            # Odd rows (y is odd) are offset with a leading space
+            is_offset_row = (y % 2 == 1)
+            if is_offset_row:
+                line += " "
+
+            for x in range(min_x, max_x + 1, 2):
+                # For offset rows, we shift x by 1
+                actual_x = x + (1 if is_offset_row else 0)
+                coord = HexCoordinate(x=actual_x, y=y)
+                hex_obj = hex_map.get_hex(coord)
+
+                if hex_obj:
+                    code = terrain_codes.get(hex_obj.terrain, '?')
+                    # Mark POIs with asterisk
+                    if hex_obj.pois:
+                        code = code + '*'
+                    line += code + " "
+                else:
+                    line += "  "
+
+            result += line.rstrip() + "\n"
+
+        # Add POI list
+        pois_in_view = []
+        for hex_obj in hexes_to_render.values():
+            for poi in hex_obj.pois:
+                pois_in_view.append((hex_obj.coordinate, poi))
+
+        if pois_in_view:
+            result += "\n**Points of Interest:**\n"
+            for coord, poi in pois_in_view:
+                discovered = "✓" if poi.discovered else "?"
+                result += f"  [{coord.x},{coord.y}] {poi.name} ({poi.poi_type.value}) {discovered}\n"
+
+        return result
+
+    else:  # emoji mode
+        # Emoji mode: visual display with emojis
+        result = f"**🗺️ {hex_map.name}**\n"
+        if hex_map.description:
+            result += f"_{hex_map.description}_\n"
+        result += f"📏 Scale: {hex_map.hex_diameter_km} km per hex\n\n"
+
+        # Build emoji map
+        for y in range(min_y, max_y + 1):
+            line = ""
+            # Odd rows (y is odd) are offset
+            is_offset_row = (y % 2 == 1)
+            if is_offset_row:
+                line += "  "  # Double space for emoji offset
+
+            for x in range(min_x, max_x + 1, 2):
+                actual_x = x + (1 if is_offset_row else 0)
+                coord = HexCoordinate(x=actual_x, y=y)
+                hex_obj = hex_map.get_hex(coord)
+
+                if hex_obj:
+                    emoji = terrain_emojis.get(hex_obj.terrain, '⬡')
+                    # Overlay POI marker
+                    if hex_obj.pois:
+                        # Show number of POIs
+                        if len(hex_obj.pois) == 1:
+                            emoji = '📍'
+                        else:
+                            emoji = f'{len(hex_obj.pois)}📍'
+                    line += emoji + " "
+                else:
+                    line += "⬡ "  # Empty hex
+
+            result += line.rstrip() + "\n"
+
+        # Add legend
+        result += "\n**🎨 Terrain Legend:**\n"
+        terrain_set = set(hex_obj.terrain for hex_obj in hexes_to_render.values())
+        for terrain in sorted(terrain_set, key=lambda t: t.value):
+            emoji = terrain_emojis.get(terrain, '⬡')
+            result += f"  {emoji} = {terrain.value}\n"
+
+        # Add POI list
+        pois_in_view = []
+        for hex_obj in hexes_to_render.values():
+            for poi in hex_obj.pois:
+                pois_in_view.append((hex_obj.coordinate, poi))
+
+        if pois_in_view:
+            result += "\n**📍 Points of Interest:**\n"
+            for coord, poi in sorted(pois_in_view, key=lambda x: (x[0].y, x[0].x)):
+                discovered_icon = "✓" if poi.discovered else "❓"
+                poi_emoji = terrain_emojis.get(TerrainType.URBAN, '🏛️')
+                if poi.poi_type == POIType.CITY:
+                    poi_emoji = '🏙️'
+                elif poi.poi_type == POIType.TOWN:
+                    poi_emoji = '🏘️'
+                elif poi.poi_type == POIType.VILLAGE:
+                    poi_emoji = '🏡'
+                elif poi.poi_type == POIType.DUNGEON:
+                    poi_emoji = '⚔️'
+                elif poi.poi_type == POIType.RUINS:
+                    poi_emoji = '🏚️'
+                elif poi.poi_type == POIType.CASTLE:
+                    poi_emoji = '🗼'
+                elif poi.poi_type == POIType.TEMPLE:
+                    poi_emoji = '⛩️'
+                elif poi.poi_type == POIType.TOWER:
+                    poi_emoji = '🗼'
+                elif poi.poi_type == POIType.CAVE:
+                    poi_emoji = '🕳️'
+                elif poi.poi_type == POIType.INN:
+                    poi_emoji = '🍺'
+                elif poi.poi_type == POIType.CAMP:
+                    poi_emoji = '🏡'
+                elif poi.poi_type == POIType.SHRINE:
+                    poi_emoji = '⛩️'
+                elif poi.poi_type == POIType.LANDMARK:
+                    poi_emoji = '🗿'
+
+                result += f"  [{coord.x:2},{coord.y:2}] {poi_emoji} **{poi.name}** ({poi.poi_type.value}) {discovered_icon}\n"
+
+        # Add roads if any intersect view
+        '''
+        roads_in_view = []
+        for road in hex_map.roads:
+            for coord in road.path:
+                if coord.x >= min_x and coord.x <= max_x and coord.y >= min_y and coord.y <= max_y:
+                    roads_in_view.append(road)
+                    break
+
+        if roads_in_view:
+            result += "\n**🛤️ Roads:**\n"
+            for road in roads_in_view:
+                road_emoji = "🛣️" if road.road_type == "highway" else "🛤️" if road.road_type == "road" else "🥾"
+                name = road.name or "Unnamed road"
+                result += f"  {road_emoji} {name} ({road.road_type}, {len(road.path)} hexes)\n"
+        '''
+
+        # Add rivers if any intersect view
+        '''
+        rivers_in_view = []
+        for river in hex_map.rivers:
+            for seg in river.path:
+                coord = seg["hex"]
+                if coord.x >= min_x and coord.x <= max_x and coord.y >= min_y and coord.y <= max_y:
+                    rivers_in_view.append(river)
+                    break
+
+        if rivers_in_view:
+            result += "\n**💧 Rivers:**\n"
+            for river in rivers_in_view:
+                name = river.name or "Unnamed river"
+                result += f"  🌊 {name} ({river.river_width}, {len(river.path)} segments)\n"
+        '''
+
+        return result
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def calculate_distance(
+    from_x: Annotated[int, Field(description="Starting X coordinate (column)")],
+    from_y: Annotated[int, Field(description="Starting Y coordinate (row)")],
+    to_x: Annotated[int, Field(description="Destination X coordinate (column)")],
+    to_y: Annotated[int, Field(description="Destination Y coordinate (row)")],
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Calculate the distance in hexes and kilometers between two points."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    from_coord = HexCoordinate(x=from_x, y=from_y)
+    to_coord = HexCoordinate(x=to_x, y=to_y)
+
+    hex_distance = from_coord.distance_to(to_coord)
+    km_distance = hex_distance * hex_map.hex_diameter_km
+
+    return f"Distance from [{from_x},{from_y}] to [{to_x},{to_y}]: {hex_distance} hexes ({km_distance:.1f} km)"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def describe_area(
+    center_x: Annotated[int, Field(description="X coordinate of center (column)")],
+    center_y: Annotated[int, Field(description="Y coordinate of center (row)")],
+    radius: Annotated[int, Field(description="Radius in hexes")] = 1,
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Describe an area of the map centered on a specific hex."""
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    center = HexCoordinate(x=center_x, y=center_y)
+    result = f"Area around [{center_x},{center_y}] (radius {radius} hexes):\n\n"
+
+    # Get all hexes in range
+    hexes_in_range = []
+    for x in range(center_x - radius, center_x + radius + 1):
+        for y in range(center_y - radius, center_y + radius + 1):
+            coord = HexCoordinate(x=x, y=y)
+            if center.distance_to(coord) <= radius:
+                hex_obj = hex_map.get_hex(coord)
+                if hex_obj:
+                    hexes_in_range.append(hex_obj)
+
+    if not hexes_in_range:
+        return "No hexes found in this area."
+
+    # Summarize terrain
+    terrain_counts: dict[str, int] = {}
+    for hex_obj in hexes_in_range:
+        terrain_name = hex_obj.terrain.value
+        terrain_counts[terrain_name] = terrain_counts.get(terrain_name, 0) + 1
+
+    result += "Terrain:\n"
+    for terrain, count in sorted(terrain_counts.items(), key=lambda x: x[1], reverse=True):
+        result += f"- {terrain}: {count} hexes\n"
+
+    # List POIs
+    pois_found = []
+    for hex_obj in hexes_in_range:
+        for poi in hex_obj.pois:
+            if poi.discovered:
+                pois_found.append((hex_obj.coordinate, poi))
+
+    if pois_found:
+        result += "\nPoints of Interest:\n"
+        for coord, poi in pois_found:
+            result += f"- {poi.name} ({poi.poi_type.value}) at [{coord.x},{coord.y}]\n"
+
+    return result.rstrip()
+
+
+# Helper function for roads and rivers
+def _get_direction_between_hexes(from_hex: HexCoordinate, to_hex: HexCoordinate) -> HexSide | None:
+    """Determine which side of from_hex leads to to_hex."""
+    # Get neighbor offsets for the from_hex
+    if from_hex.x % 2 == 0:
+        # Even column offsets
+        offsets = {
+            HexSide.NORTH: (0, -1),
+            HexSide.NORTHEAST: (1, -1),
+            HexSide.SOUTHEAST: (1, 0),
+            HexSide.SOUTH: (0, 1),
+            HexSide.SOUTHWEST: (-1, 0),
+            HexSide.NORTHWEST: (-1, -1)
+        }
+    else:
+        # Odd column offsets
+        offsets = {
+            HexSide.NORTH: (0, -1),
+            HexSide.NORTHEAST: (1, 0),
+            HexSide.SOUTHEAST: (1, 1),
+            HexSide.SOUTH: (0, 1),
+            HexSide.SOUTHWEST: (-1, 1),
+            HexSide.NORTHWEST: (-1, 0)
+        }
+
+    dx = to_hex.x - from_hex.x
+    dy = to_hex.y - from_hex.y
+
+    for direction, (offset_x, offset_y) in offsets.items():
+        if dx == offset_x and dy == offset_y:
+            return direction
+
+    return None  # Not adjacent
+
+
+# Road and River Tools
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_road(
+    path: Annotated[list[tuple[int, int]], Field(description="List of (x, y) coordinates the road passes through, in order from start to end")],
+    road_type: Annotated[str, Field(description="Type of road (e.g., 'highway', 'road', 'path', 'trail')")] = "road",
+    condition: Annotated[str, Field(description="Road condition (e.g., 'well-maintained', 'fair', 'poor', 'overgrown')")] = "fair",
+    start_point: Annotated[str, Field(description="Where the road starts in the first hex: 'center', 'north', 'northeast', 'southeast', 'south', 'southwest', or 'northwest'")] = "center",
+    end_point: Annotated[str, Field(description="Where the road ends in the last hex: 'center', 'north', 'northeast', 'southeast', 'south', 'southwest', or 'northwest'")] = "center",
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Add a road that follows a path through multiple hexes.
+
+    The tool automatically calculates which sides the road enters and exits for each hex
+    based on the sequence of coordinates. Each consecutive pair of hexes must be adjacent.
+
+    The start_point defines where the road begins in the first hex (defaults to 'center',
+    e.g., a town). The end_point defines where the road ends in the last hex.
+    """
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    if len(path) < 2:
+        return "Road path must contain at least 2 hexes"
+
+    # Convert start/end points to HexSide
+    start_side = None if start_point == "center" else HexSide(start_point)
+    end_side = None if end_point == "center" else HexSide(end_point)
+
+    roads_added = 0
+
+    for i in range(len(path)):
+        x, y = path[i]
+        coord = HexCoordinate(x=x, y=y)
+        hex_obj = hex_map.get_hex(coord)
+
+        if not hex_obj:
+            return f"No hex found at [{x},{y}]. Create all hexes in the path first."
+
+        # Determine entry and exit points for this hex
+        if i == 0:
+            # First hex
+            entry = start_side
+            if len(path) > 1:
+                next_coord = HexCoordinate(x=path[1][0], y=path[1][1])
+                exit_dir = _get_direction_between_hexes(coord, next_coord)
+                if exit_dir is None:
+                    return f"Hexes at [{x},{y}] and [{path[1][0]},{path[1][1]}] are not adjacent"
+            else:
+                exit_dir = end_side
+        elif i == len(path) - 1:
+            # Last hex
+            prev_coord = HexCoordinate(x=path[i-1][0], y=path[i-1][1])
+            entry_dir = _get_direction_between_hexes(prev_coord, coord)
+            if entry_dir is None:
+                return f"Hexes at [{path[i-1][0]},{path[i-1][1]}] and [{x},{y}] are not adjacent"
+            entry = entry_dir
+            exit_dir = end_side
+        else:
+            # Middle hex
+            prev_coord = HexCoordinate(x=path[i-1][0], y=path[i-1][1])
+            next_coord = HexCoordinate(x=path[i+1][0], y=path[i+1][1])
+
+            entry_dir = _get_direction_between_hexes(prev_coord, coord)
+            exit_dir = _get_direction_between_hexes(coord, next_coord)
+
+            if entry_dir is None:
+                return f"Hexes at [{path[i-1][0]},{path[i-1][1]}] and [{x},{y}] are not adjacent"
+            if exit_dir is None:
+                return f"Hexes at [{x},{y}] and [{path[i+1][0]},{path[i+1][1]}] are not adjacent"
+
+            entry = entry_dir
+
+        # Create road segment
+        road = Road(
+            start_point=entry,
+            end_point=exit_dir,
+            road_type=road_type,
+            condition=condition
+        )
+
+        hex_obj.roads.append(road)
+        hex_map.set_hex(hex_obj)
+        roads_added += 1
+
+    storage.add_hex_map(hex_map)
+    return f"Added {road_type} through {roads_added} hexes (condition: {condition})"
+
+
+@tool_with_logging(mcp, tags=["mode:any"])
+def add_river(
+    path: Annotated[list[tuple[int, int]], Field(description="List of (x, y) coordinates the river flows through, from source to mouth")],
+    width: Annotated[str, Field(description="River width category (e.g., 'stream', 'river', 'wide river')")] = "river",
+    navigable: Annotated[bool, Field(description="Whether the river is navigable by boat")] = False,
+    start_point: Annotated[str, Field(description="Where the river starts in the first hex: 'center' (spring/source) or a side (entering from another region)")] = "center",
+    end_point: Annotated[str, Field(description="Where the river ends in the last hex: 'center' (lake/ocean) or a side (exiting to another region)")] = "center",
+    map_name: Annotated[str | None, Field(description="Name of the hex map (uses current map if not provided)")] = None,
+) -> str:
+    """Add a river that follows a path through multiple hexes.
+
+    The tool automatically calculates which sides the river enters and exits for each hex
+    based on the sequence of coordinates. Each consecutive pair of hexes must be adjacent.
+
+    The start_point defines where the river begins (defaults to 'center' for a spring/source).
+    The end_point defines where it ends (defaults to 'center' for emptying into a lake/ocean).
+    """
+    map_name = resolve_map_name(map_name)
+    hex_map = storage.get_hex_map(map_name)
+    if not hex_map:
+        return f"Hex map '{map_name}' not found"
+
+    if len(path) < 1:
+        return "River path must contain at least 1 hex"
+
+    # Convert start/end points to HexSide
+    start_side = None if start_point == "center" else HexSide(start_point)
+    end_side = None if end_point == "center" else HexSide(end_point)
+
+    rivers_added = 0
+
+    for i in range(len(path)):
+        x, y = path[i]
+        coord = HexCoordinate(x=x, y=y)
+        hex_obj = hex_map.get_hex(coord)
+
+        if not hex_obj:
+            return f"No hex found at [{x},{y}]. Create all hexes in the path first."
+
+        # Determine entry and exit points for this hex
+        if i == 0:
+            # First hex
+            entry = start_side
+            if len(path) > 1:
+                next_coord = HexCoordinate(x=path[1][0], y=path[1][1])
+                exit_dir = _get_direction_between_hexes(coord, next_coord)
+                if exit_dir is None:
+                    return f"Hexes at [{x},{y}] and [{path[1][0]},{path[1][1]}] are not adjacent"
+            else:
+                exit_dir = end_side
+        elif i == len(path) - 1:
+            # Last hex
+            prev_coord = HexCoordinate(x=path[i-1][0], y=path[i-1][1])
+            entry_dir = _get_direction_between_hexes(prev_coord, coord)
+            if entry_dir is None:
+                return f"Hexes at [{path[i-1][0]},{path[i-1][1]}] and [{x},{y}] are not adjacent"
+            entry = entry_dir
+            exit_dir = end_side
+        else:
+            # Middle hex
+            prev_coord = HexCoordinate(x=path[i-1][0], y=path[i-1][1])
+            next_coord = HexCoordinate(x=path[i+1][0], y=path[i+1][1])
+
+            entry_dir = _get_direction_between_hexes(prev_coord, coord)
+            exit_dir = _get_direction_between_hexes(coord, next_coord)
+
+            if entry_dir is None:
+                return f"Hexes at [{path[i-1][0]},{path[i-1][1]}] and [{x},{y}] are not adjacent"
+            if exit_dir is None:
+                return f"Hexes at [{x},{y}] and [{path[i+1][0]},{path[i+1][1]}] are not adjacent"
+
+            entry = entry_dir
+
+        # Create river segment
+        river = River(
+            start_point=entry,
+            end_point=exit_dir,
+            width=width,
+            navigable=navigable
+        )
+
+        hex_obj.rivers.append(river)
+        hex_map.set_hex(hex_obj)
+        rivers_added += 1
+
+    storage.add_hex_map(hex_map)
+    return f"Added {width} through {rivers_added} hexes" + (" (navigable)" if navigable else "")
+
+
+# LLM-Assisted Map Generation
+@tool_with_logging(mcp, tags=["mode:any"])
+async def generate_map_for_location(
+    ctx: Context,
+    location_id: Annotated[str, Field(description="ID of the existing outdoor Location to add a map to")],
+    map_description: Annotated[str, Field(description="Description of the terrain and features to generate (e.g., 'a forested valley with a river running north to south and mountains on the eastern edge')")],
+    width: Annotated[int, Field(description="Width of the map in hexes", ge=5, le=50)] = 20,
+    height: Annotated[int, Field(description="Height of the map in hexes", ge=5, le=50)] = 20,
+    hex_diameter_km: Annotated[float, Field(description="Size of each hex in kilometers")] = 10.0,
+) -> str:
+    """Generate a hex map for an existing outdoor location using LLM sampling.
+
+    This tool uses MCP sampling to ask an LLM to generate a hex map in ASCII format
+    based on the provided description. The LLM will create terrain appropriate to the
+    description, which is then automatically parsed and converted into a HexMap object
+    associated with the specified Location.
+    """
+    # Get the location
+    location = storage.get_location(location_id)
+    if not location:
+        return f"Location with ID '{location_id}' not found"
+
+    # Build terrain codes legend
+    terrain_codes = {
+        'G': 'grass',
+        'P': 'plains',
+        'F': 'farmland',
+        'L': 'light_forest',
+        'D': 'dense_forest',
+        'J': 'jungle',
+        'M': 'marsh',
+        'S': 'swamp',
+        'H': 'hills',
+        'N': 'mountains',
+        'E': 'desert',
+        'B': 'badlands',
+        'T': 'tundra',
+        'I': 'glacier',
+        'V': 'volcanic',
+        'C': 'coast',
+        'W': 'water',
+        'R': 'scrub'
+    }
+
+    # Build the prompt for LLM
+    prompt = f"""Generate a hex map in ASCII format with the following characteristics:
+
+DESCRIPTION: {map_description}
+
+MAP SIZE: {width} hexes wide by {height} hexes tall
+
+TERRAIN CODES (use single letters):
+"""
+    for code, terrain in terrain_codes.items():
+        prompt += f"  {code} = {terrain}\n"
+
+    prompt += f"""
+FORMAT REQUIREMENTS:
+1. Each character represents one hex's terrain type
+2. Separate hexes with a single space
+3. Each row is on its own line
+4. ODD-numbered rows (rows 1, 3, 5...) must start with a space to show hex offset
+5. EVEN-numbered rows (rows 0, 2, 4...) start directly with a terrain code
+6. Create exactly {height} rows
+7. Make the map realistic and interesting based on the description
+
+EXAMPLE (5x3 map):
+G G L L M
+ L L D D H
+G L D H H
+
+This creates:
+- Row 0 (even): hexes at columns 0,2,4,6,8
+- Row 1 (odd, indented): hexes at columns 1,3,5,7,9
+- Row 2 (even): hexes at columns 0,2,4,6,8
+
+Now generate a {width}x{height} hex map matching the description. Output ONLY the ASCII map, no explanations.
+"""
+
+    # Sample from LLM
+    try:
+        response = await ctx.sample(
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4000,
+            temperature=0.7
+        )
+    except Exception as e:
+        logger.error(f"Error calling LLM for map generation: {e}")
+        return f"Error generating map via LLM: {str(e)}. Try using import_terrain_from_ascii manually instead."
+
+    try:
+        ascii_map = response.content.strip()
+
+        # Create HexMap
+        map_name = f"{location.name} Map"
+        hex_map = HexMap(
+            name=map_name,
+            description=map_description,
+            hex_diameter_km=hex_diameter_km
+        )
+
+        # Parse the ASCII map
+        lines = ascii_map.strip().split('\n')
+        hex_count = 0
+
+        for row_idx, line in enumerate(lines):
+            y = row_idx
+
+            # Check if this is an odd row (starts with space)
+            is_offset_row = line.startswith(' ')
+            if is_offset_row:
+                line = line[1:]  # Remove leading space
+
+            # Split by spaces to get individual hex characters
+            chars = line.split()
+
+            for col_idx, char in enumerate(chars):
+                if char in terrain_codes:
+                    # Calculate x coordinate with standard consecutive numbering
+                    # For odd-q offset coordinates (pointy-top hexes):
+                    # - Even rows (y=0,2,4...): hexes at x = 0,1,2,3...
+                    # - Odd rows (y=1,3,5...): hexes at x = 0,1,2,3... (visually offset)
+                    x = col_idx
+                    terrain_name = terrain_codes[char]
+
+                    try:
+                        terrain = TerrainType(terrain_name)
+                        coord = HexCoordinate(x=x, y=y)
+                        hex_obj = Hex(coordinate=coord, terrain=terrain)
+                        hex_map.set_hex(hex_obj)
+                        hex_count += 1
+                    except ValueError:
+                        # Invalid terrain type, skip
+                        logger.warning(f"Skipping invalid terrain type: {terrain_name}")
+                        pass
+
+        # Store the map
+        storage.add_hex_map(hex_map)
+
+        return f"Generated {width}x{height} hex map '{map_name}' for '{location.name}'. Total hexes: {hex_count}. Scale: {hex_diameter_km} km per hex."
+
+    except Exception as e:
+        logger.error(f"Error parsing generated map: {e}")
+        return f"Error parsing generated map: {str(e)}. The LLM response was: {ascii_map[:200]}"
 
 
 @mcp.resource("resource://transcripts/{campaign_name}/{session_number}")
